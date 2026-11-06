@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from inference_guardian import read_source_version
 ROOT_FILES = ("README.md", ".dockerignore", "pyproject.toml")
-DEPLOY_FILES = ("deploy/Dockerfile", "deploy/site.example.json",
+DEPLOY_FILES = ("deploy/Dockerfile", "deploy/site.example.json", "deploy/presets.json",
                 "deploy/python-3.12-slim-bookworm-arm64.tar.xz")
 # 部署工具和现场文档显式列出；新增开发工具/规则/审查稿不会自动进入交付。
 SCRIPT_FILES = tuple("scripts/" + name + ".py" for name in (
@@ -29,7 +29,6 @@ HOST_MODULES += ('uninstall',)
 SCRIPT_FILES += tuple("scripts/guardian_ops/" + name + ".py" for name in HOST_MODULES)
 DOC_FILES = tuple("docs/" + name for name in (
     "operations.md", "recovery.md", "delivery.md", "image-distribution.md", "release-notes.md"))
-TREES = {"src": {".py"}, "examples/vllm-ascend": {".md", ".json"}}
 EXCLUDE = {".demo", ".runtime", "dist", "state", "reports", "archive", "tests", "__pycache__", ".git", ".pytest_cache"}
 
 
@@ -62,32 +61,54 @@ def release_stem(name):
     return name[:-7]
 
 
-def collect_files(root):
-    """白名单收集当前交付文件；不跟随符号链接，不遍历运行目录或历史归档。"""
-    root = Path(root).resolve()
-    found = []
-    for name in (*ROOT_FILES, *DEPLOY_FILES, *SCRIPT_FILES, *DOC_FILES):
-        path = root / name
+def _release_inputs(root, data_root, base_archive=None):
+    """产生归档相对路径和源路径。外部交付目录只提供声明的配置与镜像。"""
+    inputs = {}
+
+    def add(base, name):
+        path = base / name
         if path.is_symlink() or not path.is_file() or path.resolve().parent != path.parent:
-            raise ValueError(f"missing or unsafe required source file: {name}")
-        found.append(path)
-    for name, suffixes in TREES.items():
-        base = root / name
-        if base.is_symlink() or not base.is_dir() or base.resolve() != base:
-            raise ValueError(f"missing or unsafe source directory: {name}")
-        for folder, directories, files in os.walk(base, followlinks=False):
-            directories[:] = sorted(item for item in directories if item not in EXCLUDE and not item.startswith('.'))
-            for item in directories:
-                if (Path(folder) / item).is_symlink():
-                    raise ValueError("source directory symlinks are not packaged")
-            for item in sorted(files):
-                path = Path(folder) / item
-                if item.startswith(('.', 'test_')) or path.suffix not in suffixes:
-                    continue
-                if path.is_symlink() or not path.is_file():
-                    raise ValueError("source file symlinks are not packaged")
-                found.append(path)
-    return sorted(found, key=lambda path: path.relative_to(root).as_posix())
+            raise ValueError("missing or unsafe required source file: " + name)
+        inputs[name] = path
+
+    catalog_name = "deploy/presets.json"
+    archive_name = "deploy/python-3.12-slim-bookworm-arm64.tar.xz"
+    for name in (*ROOT_FILES, *DEPLOY_FILES, *SCRIPT_FILES, *DOC_FILES):
+        if name == archive_name and base_archive is not None:
+            path = Path(base_archive).absolute()
+            if path.is_symlink() or not path.is_file() or any(parent.is_symlink() for parent in path.parents):
+                raise ValueError("base archive must be a regular file")
+            inputs[name] = path.resolve()
+        else:
+            add(data_root if name in (catalog_name, archive_name) else root, name)
+    catalog = json.loads(inputs[catalog_name].read_text(encoding="utf-8"))
+    prefix = "examples/vllm-ascend/"
+    add(data_root, prefix + "probe-settings.json")
+    add(data_root, prefix + "README.md")
+    for key in ("V4_EXAMPLE", "V41_EXAMPLE", "MIXED_EXAMPLE", "MIXED_W8A8_EXAMPLE"):
+        folder = catalog[key]
+        if not isinstance(folder, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", folder):
+            raise ValueError("invalid example folder in catalog")
+        name = prefix + folder + "/source-manifest.json"
+        if name in inputs:
+            raise ValueError("duplicate example folder")
+        add(data_root, name)
+        if key.startswith("MIXED"):
+            add(data_root, prefix + folder + "/probe-settings.json")
+    for folder, directories, files in os.walk(root / "src", followlinks=False):
+        directories[:] = sorted(d for d in directories if d not in EXCLUDE and not d.startswith("."))
+        if any((Path(folder) / d).is_symlink() for d in directories):
+            raise ValueError("source directory symlinks are not packaged")
+        for filename in files:
+            if filename.endswith(".py") and not filename.startswith((".", "test_")):
+                add(root, (Path(folder) / filename).relative_to(root).as_posix())
+    return sorted(inputs.items())
+
+
+def collect_files(root):
+    """列出使用包内示例时的发布输入。保留原宿主 API。"""
+    root = Path(root).resolve()
+    return [path for _, path in _release_inputs(root, root)]
 
 
 def verify_archive(archive, manifest):
@@ -120,7 +141,7 @@ def verify_archive(archive, manifest):
             "permissions_verified": True, "links_absent": True, "uid_gid": "0:0"}
 
 
-def build(root, name):
+def build(root, name, *, delivery_dir=None, base_archive=None):
     """在独立Linux暂存区chmod后调用tar；不会chmod宿主运行配置或凭据。
 
     Python脚本以python3执行，无需执行位。uid/gid统一为0，现场以
@@ -134,8 +155,11 @@ def build(root, name):
     require_release_notes(root, version)
     if name != f"inference-guardian-source-{version}.tar.gz":
         raise ValueError("archive name must match project.version in pyproject.toml")
-    files = collect_files(root)
-    destination = root / "dist"
+    data_root = Path(delivery_dir).resolve() if delivery_dir is not None else root
+    if delivery_dir is not None and (data_root == root or root in data_root.parents or data_root in root.parents):
+        raise ValueError("delivery directory must be separate from the source repository")
+    files = _release_inputs(root, data_root, base_archive)
+    destination = data_root / "dist"
     if destination.is_symlink():
         raise ValueError("dist must not be a symlink")
     destination.mkdir(exist_ok=True)
@@ -147,13 +171,15 @@ def build(root, name):
         staging = Path(temporary) / "inference-guardian"
         staging.mkdir()
         entries = []
-        for source in files:
-            relative = source.relative_to(root)
+        for relative, source in files:
             target = staging / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
-            entries.append({"path": relative.as_posix(), "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            entries.append({"path": relative, "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                             "bytes": target.stat().st_size, "mode": "0644"})
+        # 在写最终产物前，从暂存树读取选定目录，验证四套运行配置。
+        subprocess.run([sys.executable, "-E", "-B", str(staging / "scripts/generate_external_profiles.py"),
+                        "--check"], cwd=str(staging), check=True, stdout=subprocess.DEVNULL)
         manifest = {"version": version, "release_name": name,
                     "created_utc": datetime.now(timezone.utc).isoformat(),
                     "scope": "Inference Guardian service, deployment examples and operations documentation",
@@ -177,10 +203,12 @@ def build(root, name):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="Optional; must match inference-guardian-source-{project.version}.tar.gz")
+    parser.add_argument("--delivery-dir", type=Path, help="External deployment inputs; write artifacts to its dist/")
+    parser.add_argument("--base-archive", type=Path, help="Use this external ARM64 Python base archive")
     args = parser.parse_args(argv)
     try:
         name = args.name or f"inference-guardian-source-{project_version(ROOT)}.tar.gz"
-        result = build(ROOT, name)
+        result = build(ROOT, name, delivery_dir=args.delivery_dir, base_archive=args.base_archive)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, ensure_ascii=False))

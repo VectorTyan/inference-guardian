@@ -6,11 +6,21 @@
 python3 -B scripts/make_bundle.py
 ```
 
+### 从外部目录打包
+
+同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。设 DELIVERY_DIR 为该目录的绝对路径：
+
+```bash
+python3 -B scripts/make_bundle.py --delivery-dir "$DELIVERY_DIR"
+```
+
+现场交付物写入 `$DELIVERY_DIR/dist/`。打包器只选择指定数据文件，源码、安装入口与 Dockerfile 均取自 Git 仓库；站点的 Token、私钥、site.json、状态目录和测试资料独立保管。维护 `presets.json` 时同步核对两个四节点示例的 host/master 与旧布局；原部署应保留其原部署 ID。公开示例包可用 `--base-archive /absolute/path/to/base.tar.xz` 指向外部镜像，输出到仓库的 dist。相同版本的两种产物应分别存放并使用各自的 SHA256SUMS。
+
 ### 选择全新部署的示例
 
 公开版使用自己的部署 ID、容器名和文档地址。请在独立环境首次安装；已有私有部署应继续使用其原发行包、原身份和原回执进行维护。直接使用公开示例升级私有部署会导致接管身份不匹配。
 
-四节点 P/D 示例的地址校验使用宿主工具内置的布局表。为自己的节点打包时，同时更新 `scripts/guardian_ops/presets.py` 的 `LAYOUT` 和选定清单中的 `nodes[].host/master`，再执行 `python3 -B scripts/generate_external_profiles.py --check`。两个 P/D 示例共享这张布局表，打包全部示例时两份清单须同步。两节点混部的地址取自所选清单。
+四节点 P/D 示例的地址校验使用宿主工具内置的布局表。为自己的节点打包时，同时更新对应 `deploy/presets.json` 的 `LAYOUT` 和选定清单中的 `nodes[].host/master`，再执行 `python3 -B scripts/generate_external_profiles.py --check`。两个 P/D 示例共享这张布局表，打包全部示例时两份清单须同步。两节点混部的地址取自所选清单。
 
 将 dist 中源码包、同名 SHA256SUMS、install_guardian.py 复制到管理节点的 `/data/scripts/inference-guardian/packages/`。从示例复制一份 source-manifest.json 到受管根目录的 config/，根据实际服务维护节点、容器、权重路径与启动脚本。自定义 probe-settings.json 与清单同目录保存。模型应已运行，Agent 管理端口仅对可信网络开放。示例启用 HTTP，运维需保障管理流量和 Token 的机密性。主控通过 SSH 连接工作节点。默认构建使用本地 ARM64 基础镜像或已核验的随包归档。
 

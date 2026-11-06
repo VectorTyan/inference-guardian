@@ -9,7 +9,11 @@
 ```bash
 set -euo pipefail
 cd /data/scripts/inference-guardian
-IG_PROFILE=/data/scripts/inference-guardian/config/manual-profiles/example-pd-dp2tp8
+if [[ -z "${IG_PROFILE:-}" ]]; then
+  configs=("$PWD"/config/manual-profiles/*/controller-external.json)
+  [[ ${#configs[@]} -eq 1 && -f "${configs[0]}" ]] || { echo "请指定四节点配置目录 IG_PROFILE" >&2; exit 1; }
+  IG_PROFILE=$(dirname "${configs[0]}")
+fi
 IG_VERSION=$(PYTHONPATH=src python3 -c 'from inference_guardian import __version__; print(__version__)')
 [[ "$IG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*$ ]]
 test "${#IG_VERSION}" -le 128
