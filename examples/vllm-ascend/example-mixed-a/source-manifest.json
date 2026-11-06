@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "scenario": "example-mixed-a",
+  "scenario": "example-mixed-a-group",
   "script_directory": "/data/scripts/example-mixed-a",
   "model_path": "/data/models/example-mixed-a",
   "served_model_name": "example-chat",
