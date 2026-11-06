@@ -5,7 +5,7 @@ import re
 from inference_guardian.storage import read_json
 from .mooncake_contract import MIXED_EXAMPLE, MIXED_EXAMPLES, V4_EXAMPLE, V41_EXAMPLE
 
-from .presets import LEGACY_MIXED_EXAMPLE as _LEGACY_MIXED_EXAMPLE, PACKAGED_EXAMPLES as _PACKAGED_EXAMPLES
+from .presets import LEGACY_MIXED_EXAMPLE as _LEGACY_MIXED_EXAMPLE
 
 SOURCE = Path(__file__).resolve().parents[2]
 
@@ -16,7 +16,7 @@ def load_site(path, mode=None):
         name = value['profile']
         if name == _LEGACY_MIXED_EXAMPLE:
             name = MIXED_EXAMPLE
-        if name not in _PACKAGED_EXAMPLES or set(value) - (keys - {'profile_directory'} | {'profile'}):
+        if name not in (V4_EXAMPLE, V41_EXAMPLE, *MIXED_EXAMPLES.values()) or set(value) - (keys - {'profile_directory'} | {'profile'}):
             raise ValueError('select one packaged profile by name, or use the existing profile_directory configuration')
         defaults = read_json(SOURCE / 'deploy/site.example.json')
         for key, setting in value.items():
