@@ -12,6 +12,7 @@ from .presets import (
     DEPLOYMENT_ID, LAYOUT, MIXED_EXAMPLE, MIXED_EXAMPLES, MIXED_ID, MIXED_PROFILE,
     MIXED_SCENARIO, MIXED_W8A8_EXAMPLE, MIXED_W8A8_ID, MODEL, PROFILE,
     RETIRED_DEPLOYMENT_IDS, SCENARIO, SCRIPT_DIRECTORY, SUPPORTED_DEPLOYMENTS,
+    LEGACY_DIRECTORY_LABEL as _DIRECTORY_LABEL,
     V4_EXAMPLE, V41_EXAMPLE, LEGACY_CONTAINER as _LEGACY_CONTAINER, LEGACY_GROUP as _LEGACY_GROUP,
 )
 
@@ -182,7 +183,7 @@ def validate_manifest(manifest):
             for name in section["required_files"]:
                 _v6_name(name)
     elif manifest.get("script_directory") != SCRIPT_DIRECTORY:
-        raise ValueError("legacy source manifest requires the reviewed script directory")
+        raise ValueError("legacy source manifest requires the reviewed " + _DIRECTORY_LABEL)
     startup_nodes = list(LAYOUT) if manifest['version'] == 3 else ['p0']
     if manifest.get('mooncake', {}).get('startup_nodes') != startup_nodes:
         raise ValueError('Mooncake startup_nodes differs from reviewed manifest version')

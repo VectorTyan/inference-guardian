@@ -1,0 +1,56 @@
+{
+  "V4_EXAMPLE": "example-pd-dp2tp8",
+  "V41_EXAMPLE": "example-pd-dp4tp4",
+  "DEPLOYMENT_ID": "example-pd",
+  "MIXED_EXAMPLE": "example-mixed-a",
+  "MIXED_ID": "example-mixed-a",
+  "MIXED_W8A8_EXAMPLE": "example-mixed-b",
+  "MIXED_W8A8_ID": "example-mixed-b",
+  "LEGACY_MIXED_EXAMPLE": "example-mixed",
+  "LEGACY_CONTAINER": "example-model-a",
+  "LEGACY_GROUP": "example-chat-a",
+  "RETIRED_DEPLOYMENT_IDS": [
+    "example-retired-pd"
+  ],
+  "SCRIPT_DIRECTORY": "/data/scripts/example-pd-a",
+  "MODEL": "/data/models/example-model-a",
+  "LAYOUT": {
+    "p0": [
+      "prefill",
+      "192.0.2.11",
+      2,
+      8,
+      1,
+      0,
+      "192.0.2.11"
+    ],
+    "p1": [
+      "prefill",
+      "192.0.2.12",
+      2,
+      8,
+      1,
+      1,
+      "192.0.2.11"
+    ],
+    "d0": [
+      "decode",
+      "192.0.2.21",
+      16,
+      1,
+      8,
+      0,
+      "192.0.2.21"
+    ],
+    "d1": [
+      "decode",
+      "192.0.2.22",
+      16,
+      1,
+      8,
+      8,
+      "192.0.2.21"
+    ]
+  },
+  "directory_label": "script directory"
+}

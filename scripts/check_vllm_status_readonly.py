@@ -34,6 +34,12 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 CID = re.compile(r"[0-9a-f]{64}\Z")
 DEFAULT_CONTAINER = "example-model-a"
 DEFAULT_PATTERN = "vllm serve /data/models/example-model-a"
+# 支持单文件只读工具；随包运行时沿用该发行包的默认服务。
+_catalog = Path(__file__).resolve().parents[1] / "deploy/presets.json"
+if _catalog.is_file():
+    _defaults = json.loads(_catalog.read_text(encoding="utf-8"))
+    DEFAULT_CONTAINER = _defaults["LEGACY_CONTAINER"]
+    DEFAULT_PATTERN = "vllm serve " + _defaults["MODEL"]
 SOCKET = "/var/run/docker.sock"
 MAX_BYTES = 4 * 1024 * 1024
 
