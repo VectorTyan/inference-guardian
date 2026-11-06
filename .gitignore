@@ -17,6 +17,8 @@ venv/
 *.tgz
 *.zip
 /reports/
+/logs/
+site.json
 /runtime/
 /images/
 /packages/
@@ -46,6 +48,8 @@ secrets/
 *.key
 *.p12
 *.pfx
+id_rsa
+id_ed25519
 
 # Editor and operating-system files
 .idea/
