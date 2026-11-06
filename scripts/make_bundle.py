@@ -156,7 +156,7 @@ def build(root, name):
                             "bytes": target.stat().st_size, "mode": "0644"})
         manifest = {"version": version, "release_name": name,
                     "created_utc": datetime.now(timezone.utc).isoformat(),
-                    "scope": "Ascend four-node 1P1D external Agent source, config and field operations docs",
+                    "scope": "Inference Guardian service, deployment examples and operations documentation",
                     "permissions": {"directories": "0755", "files": "0644", "archive_uid": 0, "archive_gid": 0},
                     "files": entries}
         content = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
