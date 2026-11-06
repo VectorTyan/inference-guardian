@@ -8,13 +8,13 @@ python3 -B scripts/make_bundle.py
 
 ### 从外部目录打包
 
-同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。设 DELIVERY_DIR 为该目录的绝对路径：
+同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。在本地维护时，将这些材料放到代码仓的 `local/delivery/`，测试套件放到 `local/validation/`。整个 `local/` 由 Git 和 Docker 构建上下文排除。在仓库根目录执行以下命令。
 
 ```bash
-python3 -B scripts/make_bundle.py --delivery-dir "$DELIVERY_DIR"
+python3 -B scripts/make_bundle.py --delivery-dir local/delivery
 ```
 
-现场交付物写入 `$DELIVERY_DIR/dist/`。打包器只选择指定数据文件，源码、安装入口与 Dockerfile 均取自 Git 仓库；站点的 Token、私钥、site.json、状态目录和测试资料独立保管。维护 `presets.json` 时同步核对两个四节点示例的 host/master 与旧布局；原部署应保留其原部署 ID。公开示例包可用 `--base-archive /absolute/path/to/base.tar.xz` 指向外部镜像，输出到仓库的 dist。相同版本的两种产物应分别存放并使用各自的 SHA256SUMS。
+现场交付物写入 `local/delivery/dist/`。打包器只选择指定数据文件，源码、安装入口与 Dockerfile 均取自 Git 仓库；站点的 Token、私钥、site.json、状态目录和测试资料独立保管。维护 `presets.json` 时同步核对两个四节点示例的 host/master 与旧布局；原部署应保留其原部署 ID。公开示例包可用 `--base-archive /absolute/path/to/base.tar.xz` 指向外部镜像，输出到仓库的 dist。相同版本的两种产物应分别存放并使用各自的 SHA256SUMS。
 
 ### 选择全新部署的示例
 

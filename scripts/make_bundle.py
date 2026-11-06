@@ -156,8 +156,9 @@ def build(root, name, *, delivery_dir=None, base_archive=None):
     if name != f"inference-guardian-source-{version}.tar.gz":
         raise ValueError("archive name must match project.version in pyproject.toml")
     data_root = Path(delivery_dir).resolve() if delivery_dir is not None else root
-    if delivery_dir is not None and (data_root == root or root in data_root.parents or data_root in root.parents):
-        raise ValueError("delivery directory must be separate from the source repository")
+    if (delivery_dir is not None and data_root != root / "local" / "delivery"
+            and (data_root == root or root in data_root.parents or data_root in root.parents)):
+        raise ValueError("delivery directory must be separate from the source repository or be local/delivery")
     files = _release_inputs(root, data_root, base_archive)
     destination = data_root / "dist"
     if destination.is_symlink():
@@ -203,7 +204,7 @@ def build(root, name, *, delivery_dir=None, base_archive=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="Optional; must match inference-guardian-source-{project.version}.tar.gz")
-    parser.add_argument("--delivery-dir", type=Path, help="External deployment inputs; write artifacts to its dist/")
+    parser.add_argument("--delivery-dir", type=Path, help="Site inputs (local/delivery or a separate directory); output goes to its dist/")
     parser.add_argument("--base-archive", type=Path, help="Use this external ARM64 Python base archive")
     args = parser.parse_args(argv)
     try:

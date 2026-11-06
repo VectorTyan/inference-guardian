@@ -13,4 +13,6 @@ python3 -B scripts/check_vllm_status_readonly.py --self-test
 
 [四套配置示例](examples/vllm-ascend/README.md)使用文档专用 IP 和虚构服务名称。清单描述已存在的服务及其脚本；示例名称、地址和路径需要在部署前核对。四节点配置校验指定的节点角色、主节点及地址，修改部署地址时请同步核对宿主工具的布局表。项目对外提供的 Python 服务包是 `src/inference_guardian`，宿主部署入口是 `scripts/install_guardian.py`。
 
+有本地交付材料时，维护者从本仓库根目录运行 `python3 -B local/validation/run_tests.py` 验证当前代码，再用 `python3 -B scripts/make_bundle.py --delivery-dir local/delivery` 生成站点交付包。全新 Git 克隆中使用上面的公开示例检查。
+
 [部署与打包](docs/operations.md) · [恢复与演练](docs/recovery.md) · [版本说明](docs/release-notes.md)
