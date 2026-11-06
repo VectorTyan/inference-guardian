@@ -24,7 +24,7 @@ SCRIPT_FILES = tuple("scripts/" + name + ".py" for name in (
     "generate_node_tokens", "guardian_deploy", "guardian_schema", "mooncake_contract", "probe_config", "verify_guardian",
     "install_guardian", "guardian_rollout", "rollout_node", "rollout_state", "recommission", "guardian_inspect"))
 HOST_MODULES = ('__init__', 'deployment', 'components', 'rollout', 'node_release', 'release_state', 'inspection', 'verification', 'recommission', 'probe_config', 'mooncake_contract', 'profile_generation', 'preflight', 'tokens')
-HOST_MODULES += ('release_files', 'site', 'credentials', 'profile', 'transport', 'image')
+HOST_MODULES += ('release_files', 'site', 'credentials', 'profile', 'transport', 'image', 'presets')
 HOST_MODULES += ('uninstall',)
 SCRIPT_FILES += tuple("scripts/guardian_ops/" + name + ".py" for name in HOST_MODULES)
 DOC_FILES = tuple("docs/" + name for name in (

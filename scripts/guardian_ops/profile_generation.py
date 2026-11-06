@@ -12,6 +12,7 @@ from itertools import chain
 from pathlib import Path
 from .mooncake_contract import DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, LAYOUT, PROFILE, V4_EXAMPLE, V41_EXAMPLE, node_commands, validate_manifest, path_only_manifest
 from .mooncake_contract import MIXED_EXAMPLE, MIXED_ID, MIXED_PROFILE, MIXED_EXAMPLES, manifest_deployment_id, manifest_group_id, is_mixed
+from .presets import PACKAGED_EXAMPLES as _PACKAGED_EXAMPLES
 from .probe_config import mixed_steps, build_probe_contract, build_partial_recovery, build_exit_detection
 from inference_guardian.config import validate as validate_controller
 from inference_guardian.agent.config import validate_config as validate_agent
@@ -19,7 +20,7 @@ from inference_guardian.agent.config import validate_config as validate_agent
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
 FRAMEWORKS = ("vllm-ascend",)
-TOPOLOGIES = (V4_EXAMPLE, V41_EXAMPLE, *MIXED_EXAMPLES.values())
+TOPOLOGIES = _PACKAGED_EXAMPLES
 DEEPSEEK_PROFILE = PROFILE  # 旧完整 profile 的生成器兼容路径
 # 部署身份与接管保护使用共享常量，旧身份只能通过维护迁移更新。
 GENERATION = "external-v11-selective-prefill"
