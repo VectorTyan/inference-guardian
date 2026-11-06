@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "mode": "observe",
+  "profile_directory": null,
+  "ssh": {
+    "user": "root",
+    "port": 22,
+    "identity_file": null,
+    "connect_timeout_seconds": 10
+  },
+  "image": {
+    "source": "build",
+    "base_image": "python:3.12-slim-bookworm",
+    "archive": null,
+    "sha256": null
+  },
+  "readiness_timeout_seconds": 900
+}

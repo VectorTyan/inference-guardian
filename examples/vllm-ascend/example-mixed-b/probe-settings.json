@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "process_exit_detection": {
+    "enabled": true,
+    "failure_threshold": 3
+  },
+  "engine": {
+    "id": "{node}.mixed.api.health.{port}",
+    "description": "混部主节点 vLLM API 健康（{host}:{port}）",
+    "url": "http://{host}:{port}/health",
+    "timeout_seconds": 3,
+    "restart_on_status": [
+      503
+    ]
+  },
+  "canary": {
+    "id": "{node}.mixed.api.chat.{port}",
+    "description": "混部主节点真实生成（{host}:{port}）",
+    "url": "http://{host}:{port}/v1/chat/completions",
+    "method": "POST",
+    "nonce": true,
+    "json": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "{{nonce}} Reply with one short greeting."
+        }
+      ],
+      "max_tokens": 256,
+      "stream": false,
+      "temperature": 0
+    },
+    "timeout_seconds": 180,
+    "json_checks": [
+      {
+        "path": "choices.0.finish_reason",
+        "op": "nonempty"
+      }
+    ],
+    "json_any_checks": [
+      [
+        {
+          "path": "choices.0.message.content",
+          "op": "nonempty"
+        }
+      ],
+      [
+        {
+          "path": "choices.0.message.reasoning_content",
+          "op": "nonempty"
+        }
+      ]
+    ]
+  },
+  "process_labels": {
+    "engine": {
+      "id": "{node}.mixed.vllm.serve",
+      "description": "{node_label} 混部 vLLM 启动进程"
+    }
+  },
+  "required_process_patterns": {
+    "engine": "vllm serve {model}"
+  }
+}

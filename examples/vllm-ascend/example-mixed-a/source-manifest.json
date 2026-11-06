@@ -1,0 +1,33 @@
+{
+  "version": 6,
+  "scenario": "example-mixed-a",
+  "script_directory": "/data/scripts/example-mixed-a",
+  "model_path": "/data/models/example-mixed-a",
+  "served_model_name": "example-chat",
+  "required_files": [],
+  "external_port": 8008,
+  "nodes": [
+    {
+      "id": "p0",
+      "role": "mixed",
+      "host": "198.51.100.11",
+      "container": "example-worker-0",
+      "startup_script": "serve_node0.sh",
+      "dp": 2,
+      "tp": 8,
+      "local_dp": 1,
+      "rank": 0
+    },
+    {
+      "id": "p1",
+      "role": "mixed",
+      "host": "198.51.100.12",
+      "container": "example-worker-1",
+      "startup_script": "serve_node1.sh",
+      "dp": 2,
+      "tp": 8,
+      "local_dp": 1,
+      "rank": 1
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+# Developer regression material is maintained outside this repository.
+/tests/
+
+# Generated releases, image archives and temporary reports
+/dist/
+/build/
+*.tar
+*.tar.*
+*.tgz
+*.zip
+/reports/
+/runtime/
+/images/
+/packages/
+/releases/
+/current
+/operations/
+/backups/
+/config/
+/.delivery-history/
+
+# Node adoption state, logs and local deployment data
+.runtime/
+state/
+.demo/
+*.log
+/deploy/config/
+
+# Credentials must remain local
+/deploy/secrets/
+secrets/
+*.token
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp

@@ -1,0 +1,9 @@
+**
+!src/
+!src/**
+!deploy/
+!deploy/Dockerfile
+!pyproject.toml
+src/**/__pycache__/
+src/**/*.pyc
+deploy/*.tar*

@@ -1,0 +1,84 @@
+{
+  "version": 6,
+  "scenario": "example-pd-dp2tp8",
+  "script_directory": "/data/scripts/example-pd-a",
+  "model_path": "/data/models/example-model-a",
+  "served_model_name": "example-chat-a",
+  "required_files": [
+    "launch_online_dp.py",
+    "run_dp_template.sh",
+    "mooncake.json"
+  ],
+  "nodes": [
+    {
+      "id": "p0",
+      "role": "prefill",
+      "host": "192.0.2.11",
+      "master": "192.0.2.11",
+      "rpc_port": 12321,
+      "api_port": 7100,
+      "dp": 2,
+      "tp": 8,
+      "local_dp": 1,
+      "rank": 0,
+      "container": "example-model-a",
+      "startup_script": "start_p0.sh"
+    },
+    {
+      "id": "p1",
+      "role": "prefill",
+      "host": "192.0.2.12",
+      "master": "192.0.2.11",
+      "rpc_port": 12321,
+      "api_port": 7100,
+      "dp": 2,
+      "tp": 8,
+      "local_dp": 1,
+      "rank": 1,
+      "container": "example-model-a",
+      "startup_script": "start_p1.sh"
+    },
+    {
+      "id": "d0",
+      "role": "decode",
+      "host": "192.0.2.21",
+      "master": "192.0.2.21",
+      "rpc_port": 12321,
+      "api_port": 7100,
+      "dp": 16,
+      "tp": 1,
+      "local_dp": 8,
+      "rank": 0,
+      "container": "example-model-a",
+      "startup_script": "start_d0.sh"
+    },
+    {
+      "id": "d1",
+      "role": "decode",
+      "host": "192.0.2.22",
+      "master": "192.0.2.21",
+      "rpc_port": 12321,
+      "api_port": 7100,
+      "dp": 16,
+      "tp": 1,
+      "local_dp": 8,
+      "rank": 8,
+      "container": "example-model-a",
+      "startup_script": "start_d1.sh"
+    }
+  ],
+  "mooncake": {
+    "startup_nodes": [
+      "p0"
+    ],
+    "startup_script": "start_mooncake.sh",
+    "listen_port": 50088
+  },
+  "external_port": 8006,
+  "proxy": {
+    "startup_script": "proxy.sh",
+    "required_files": [
+      "load_balance_proxy_server_example.py"
+    ]
+  }
+}

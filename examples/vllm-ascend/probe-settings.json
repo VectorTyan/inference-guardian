@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "process_exit_detection": {"enabled": true, "failure_threshold": 3},
+  "mooncake": {
+    "id": "{node}.mooncake.tcp.{port}",
+    "description": "{node_label} Mooncake TCP监听（{port}）",
+    "url": "tcp://{host}:{port}",
+    "timeout_seconds": 3
+  },
+  "engine": {
+    "id": "{node}.vllm.{role}.http.{port}",
+    "description": "{node_label} {role} vLLM健康（端口{port}，DP rank {rank}）",
+    "url": "http://{host}:{port}/health",
+    "timeout_seconds": 3,
+    "restart_on_status": [503]
+  },
+  "proxy": {
+    "id": "{node}.proxy.http.{port}",
+    "description": "{node_label} Proxy健康与后端登记（{port}，P={prefill}/D={decode}）",
+    "url": "http://{host}:{port}/healthcheck",
+    "timeout_seconds": 3,
+    "json_checks": [
+      {"path": "status", "op": "equals", "value": "ok"},
+      {"path": "prefill_instances", "op": "equals"},
+      {"path": "decode_instances", "op": "equals"}
+    ]
+  },
+  "canary": {
+    "id": "{node}.proxy.chat-completions.{port}",
+    "description": "{node_label} Proxy入口真实P→D生成验证（{port}）",
+    "url": "http://{host}:{port}/v1/chat/completions",
+    "method": "POST",
+    "nonce": true,
+    "json": {
+      "messages": [{"role": "user", "content": "{{nonce}} Reply with one short greeting."}],
+      "max_tokens": 256,
+      "stream": false,
+      "temperature": 0
+    },
+    "timeout_seconds": 180,
+    "json_checks": [{"path": "choices.0.finish_reason", "op": "nonempty"}],
+    "json_any_checks": [
+      [{"path": "choices.0.message.content", "op": "nonempty"}],
+      [{"path": "choices.0.message.reasoning_content", "op": "nonempty"}]
+    ]
+  },
+  "process_labels": {
+    "mooncake": {"id": "{node}.process.mooncake", "description": "{node_label} Mooncake进程规则匹配"},
+    "engine": {"id": "{node}.process.vllm", "description": "{node_label} {role} vLLM命令行规则匹配（{local_dp}个）"},
+    "proxy": {"id": "{node}.process.proxy", "description": "{node_label} Proxy进程规则匹配"}
+  },
+  "required_process_patterns": {
+    "mooncake": "mooncake_master --port {port}",
+    "engine": "vllm serve {model}",
+    "proxy": "load_balance_proxy_server_example.py"
+  }
+}

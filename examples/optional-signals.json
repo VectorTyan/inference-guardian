@@ -1,0 +1,22 @@
+{
+  "stall_probe": {
+    "url": "https://PROGRESS_ADAPTER_REPLACE_ME/progress",
+    "timeout_seconds": 2
+  },
+  "expected_stall_response_example": {
+    "observed_at": 1791158400.0,
+    "pending_requests": 1,
+    "seconds_without_progress": 900
+  },
+  "quarantine_probe": {
+    "url": "https://HEALTH_ADAPTER_REPLACE_ME/status",
+    "timeout_seconds": 2,
+    "json_checks": [
+      {
+        "path": "critical_fault",
+        "op": "equals",
+        "value": true
+      }
+    ]
+  }
+}
