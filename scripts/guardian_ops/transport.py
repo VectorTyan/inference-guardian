@@ -57,6 +57,24 @@ _OCI_START_DENIED = re.compile(
 _LIBCONTAINER_SECCOMP_DENIED = re.compile(r'standard_init_linux\.go:[0-9]+: init seccomp caused "permission denied"')
 
 
+def _check_startup_failure(argv, returncode, stderr, startup_probe):
+    """识别可比较的临时启动错误。由调用方决定是否进行一次对比。"""
+    local_run = argv[:4] == ['docker', '--host', 'unix:///var/run/docker.sock', 'run']
+    if startup_probe and local_run and returncode == 1:
+        if any(_LIBCONTAINER_SECCOMP_DENIED.fullmatch(line.strip()) for line in stderr.splitlines()):
+            raise SeccompInitError('libcontainer seccomp initialization permission denied')
+    if local_run and returncode in (125, 126):
+        for line in stderr.lower().splitlines():
+            if not line.startswith('docker: error response from daemon:'):
+                continue
+            if _OCI_START_DENIED.search(line.rstrip()):
+                raise OCIStartupDenied('Docker OCI container startup permission denied')
+            if (('oci runtime create failed' in line or 'container init' in line)
+                    and re.search(r'error (?:loading|adding|applying|initializing) seccomp (?:filter|profile|rule)|'
+                                  r'(?:unable|failed) to (?:init|initialize|load|apply|set up) (?:the )?seccomp\b', line)):
+                raise SeccompInitError('Docker OCI seccomp initialization failed')
+
+
 def command(argv, *, timeout=180, log=None, ssh_password=None, startup_probe=False):
     environment = {k:v for k,v in os.environ.items() if k not in
                    {'DOCKER_CONTEXT', 'DOCKER_HOST', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH', 'DOCKER_API_VERSION', 'SSHPASS'}}
@@ -88,20 +106,7 @@ def command(argv, *, timeout=180, log=None, ssh_password=None, startup_probe=Fal
     if result.returncode:
         detail = ''
         if not log:
-            local_run = argv[:4] == ['docker', '--host', 'unix:///var/run/docker.sock', 'run']
-            if startup_probe and local_run and result.returncode == 1:
-                if any(_LIBCONTAINER_SECCOMP_DENIED.fullmatch(line.strip()) for line in result.stderr.splitlines()):
-                    raise SeccompInitError('libcontainer seccomp initialization permission denied')
-            if local_run and result.returncode in (125, 126):
-                for line in result.stderr.lower().splitlines():
-                    if not line.startswith('docker: error response from daemon:'):
-                        continue
-                    if _OCI_START_DENIED.search(line.rstrip()):
-                        raise OCIStartupDenied('Docker OCI container startup permission denied')
-                    if (('oci runtime create failed' in line or 'container init' in line)
-                            and re.search(r'error (?:loading|adding|applying|initializing) seccomp (?:filter|profile|rule)|'
-                                          r'(?:unable|failed) to (?:init|initialize|load|apply|set up) (?:the )?seccomp\b', line)):
-                        raise SeccompInitError('Docker OCI seccomp initialization failed')
+            _check_startup_failure(argv, result.returncode, result.stderr, startup_probe)
             # SSH登录横幅可能与节点JSON共用stderr；逐行读取最后一条结构化诊断。
             for line in reversed(result.stderr.splitlines()):
                 try:
