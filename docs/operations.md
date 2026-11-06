@@ -6,6 +6,12 @@
 python3 -B scripts/make_bundle.py
 ```
 
+### 选择全新部署的示例
+
+公开版使用自己的部署 ID、容器名和文档地址。请在独立环境首次安装；已有私有部署应继续使用其原发行包、原身份和原回执进行维护。直接使用公开示例升级私有部署会导致接管身份不匹配。
+
+四节点 P/D 示例的地址校验使用宿主工具内置的布局表。为自己的节点打包时，同时更新 `scripts/guardian_ops/presets.py` 的 `LAYOUT` 和选定清单中的 `nodes[].host/master`，再执行 `python3 -B scripts/generate_external_profiles.py --check`。两个 P/D 示例共享这张布局表，打包全部示例时两份清单须同步。两节点混部的地址取自所选清单。
+
 将 dist 中源码包、同名 SHA256SUMS、install_guardian.py 复制到管理节点的 `/data/scripts/inference-guardian/packages/`。从示例复制一份 source-manifest.json 到受管根目录的 config/，根据实际服务维护节点、容器、权重路径与启动脚本。自定义 probe-settings.json 与清单同目录保存。模型应已运行，Agent 管理端口仅对可信网络开放。示例启用 HTTP，运维需保障管理流量和 Token 的机密性。主控通过 SSH 连接工作节点。默认构建使用本地 ARM64 基础镜像或已核验的随包归档。
 
 ```bash
