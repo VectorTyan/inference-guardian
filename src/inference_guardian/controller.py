@@ -366,140 +366,150 @@ class Controller:
         for group in self.config["groups"]:
             if only_group is not None and group["id"] != only_group:
                 continue
-            runtime = self.state["groups"][group["id"]]
-            if runtime["maintenance"] or runtime["phase"] == "QUARANTINED":
-                continue
-            if runtime.get("recovery_required") and self.clock() < runtime["next_retry"]:
-                continue
-            retry_pending = runtime.get("recovery_required", False)
-            statuses = self.statuses(group)
-            # 操作未确认、节点不可达都不能推断为已停止；UNKNOWN优先阻断变更。
-            # 启动契约缺失或生命周期配置冲突则需要人工处理，进入QUARANTINED。
-            issue = management_issue(statuses)
-            if issue is not None:
-                phase, reason, clear_counts = issue
-                if group.get("process_exit_detection"):
-                    runtime["process_exit_counts"] = {}
-                if clear_counts:
-                    runtime["engine_failures"] = 0
-                    runtime["health_failure_counts"] = {}
-                self.transition(group, phase, reason)
-                continue
-            critical, fault_probe_known = self.critical_fault(group)
-            if critical:
-                self.transition(group, "QUARANTINED", "configured_critical_fault")
-                continue
-            if not fault_probe_known:
+            self._tick_group(group)
+
+    def _observe_canary(self, group, health_ok, hard_failure, now):
+        """采集单组业务探针，按维护状态、代次和时效接纳结果。"""
+        runtime = self.state["groups"][group["id"]]
+        need_canary = (not health_ok or not runtime.get("canary_ok") or
+                       now - runtime.get("last_canary", 0) >= self.policy["canary_interval_seconds"])
+        canary = None
+        if not hard_failure:
+            if self.async_canaries:
+                canary = self.background_canary(group, need_canary)
+            elif need_canary:
+                key = (runtime["generation"], runtime["canary_revision"])
+                canary = self.run_canaries(group)
+                canary._guardian_key = key
+        if canary is not None:
+            with self.publish_lock:
+                current_key = (runtime["generation"], runtime["canary_revision"])
+                if runtime["maintenance"] or getattr(canary, "_guardian_key", current_key) != current_key:
+                    canary = None
+                else:
+                    runtime.update(last_canary=self.clock(), canary_ok=canary.state == "pass")
+                    self.record("canary", group=group["id"], state=canary.state,
+                                    status=canary.status, reason=canary.reason)
+        if self.clock() - runtime.get("last_canary", 0) > self.policy["canary_max_age_seconds"]:
+            runtime["canary_ok"] = False
+        return canary
+
+    def _tick_group(self, group):
+        """完成一个恢复组的观测与决策，状态和故障证据始终按组保存。"""
+        runtime = self.state["groups"][group["id"]]
+        if runtime["maintenance"] or runtime["phase"] == "QUARANTINED":
+            return
+        if runtime.get("recovery_required") and self.clock() < runtime["next_retry"]:
+            return
+        retry_pending = runtime.get("recovery_required", False)
+        statuses = self.statuses(group)
+        # 操作未确认、节点不可达都不能推断为已停止；UNKNOWN优先阻断变更。
+        # 启动契约缺失或生命周期配置冲突则需要人工处理，进入QUARANTINED。
+        issue = management_issue(statuses)
+        if issue is not None:
+            phase, reason, clear_counts = issue
+            if group.get("process_exit_detection"):
+                runtime["process_exit_counts"] = {}
+            if clear_counts:
                 runtime["engine_failures"] = 0
                 runtime["health_failure_counts"] = {}
-                if group.get("process_exit_detection"):
-                    runtime["process_exit_counts"] = {}
-                self.transition(group, "UNKNOWN", "critical_fault_probe_unavailable")
-                continue
-            # 命令行匹配不到不证明进程死亡（进程可改名）；只认已确认的容器停止。
-            # 规则结果作为诊断保留，业务就绪仍须完整健康及真实生成证据。
-            hard_failure = any(s.get("state") == "stopped" for s in statuses.values())
-            mismatches = {member: s.get("process_checks", []) for member, s in statuses.items()
-                          if s.get("process_ok") is False}
-            runtime["process_rule_warnings"] = mismatches
-            notice = json.dumps(mismatches, sort_keys=True)
-            if self.observation_notices.get(group["id"]) != notice:
-                if mismatches:
-                    self.record("process_rule_mismatch", group=group["id"], members=mismatches,
-                                    restart_authorized=False)
-                    LOG.warning("group=%s served_models=%s topology=%s process_rule_mismatch members=%s; verifying inference independently",
-                                group["id"], json.dumps(self._group_log_fields(group)["served_models"], ensure_ascii=False),
-                                group["topology"], ",".join(mismatches))
-                self.observation_notices[group["id"]] = notice
-            health = self.probes(group["health_checks"])
-            health_ok = all(p.state == "pass" for p in health)
-            # 只累计显式授权的同一端点连续错误，Proxy/容量503默认只使就绪失败。
-            counts = health_failure_counts(group["health_checks"], health, runtime.get("health_failure_counts", {}))
-            runtime["health_failure_counts"] = counts
-            runtime["engine_failures"] = max(counts.values(), default=0)
+            self.transition(group, phase, reason)
+            return
+        critical, fault_probe_known = self.critical_fault(group)
+        if critical:
+            self.transition(group, "QUARANTINED", "configured_critical_fault")
+            return
+        if not fault_probe_known:
+            runtime["engine_failures"] = 0
+            runtime["health_failure_counts"] = {}
             if group.get("process_exit_detection"):
-                exited = exited_members(group, runtime, statuses, health)
-                old_counts = runtime.get("process_exit_counts", {})
-                runtime["process_exit_counts"] = {mid: old_counts.get(mid, 0) + 1 if mid in exited else 0
-                    for mid in group["process_exit_detection"]["members"]}
-            process_dead = confirmed_exits(group, runtime, statuses, health)
-            if hard_failure or not health_ok:
-                self.transition(group, "SUSPECT", "health_or_process_failure")
-            now = self.clock()
-            need_canary = (not health_ok or not runtime.get("canary_ok") or
-                           now - runtime.get("last_canary", 0) >= self.policy["canary_interval_seconds"])
-            canary = None
-            if not hard_failure:
-                if self.async_canaries:
-                    canary = self.background_canary(group, need_canary)
-                elif need_canary:
-                    key = (runtime["generation"], runtime["canary_revision"])
-                    canary = self.run_canaries(group)
-                    canary._guardian_key = key
-            if canary is not None:
-                with self.publish_lock:
-                    current_key = (runtime["generation"], runtime["canary_revision"])
-                    if runtime["maintenance"] or getattr(canary, "_guardian_key", current_key) != current_key:
-                        canary = None
-                    else:
-                        runtime.update(last_canary=self.clock(), canary_ok=canary.state == "pass")
-                        self.record("canary", group=group["id"], state=canary.state,
-                                        status=canary.status, reason=canary.reason)
-            if self.clock() - runtime.get("last_canary", 0) > self.policy["canary_max_age_seconds"]:
-                runtime["canary_ok"] = False
-            # 兼容旧Agent明确报告的字面规则失败，不放宽其它unhealthy原因。
-            healthy = inference_healthy(statuses, hard_failure, health_ok, runtime.get("canary_ok"))
-            runtime["inference_status"] = "verified" if healthy else "unverified"
-            if runtime["maintenance"]:
-                continue
-            runtime["last_observed_at"] = self.clock()
-            if healthy:
-                remember_processes(group, runtime, statuses)
-                runtime["failures"] = 0
-                runtime["recovery_required"] = False
-                if runtime["phase"] not in {"READY", "RAMP_UP"}:
-                    runtime["ready_since"] = self.clock()
-                    self.transition(group, "RAMP_UP", "verified")
-                elif runtime["phase"] == "RAMP_UP" and now - runtime.get("ready_since", now) >= self.policy["ramp_up_seconds"]:
-                    self.transition(group, "READY", "ramp_completed")
-                if now - runtime.get("ready_since", now) >= self.policy["stable_reset_seconds"]:
-                    runtime["incident_attempts"] = 0
-                self.save()
-                self.publish()
-                continue
-            runtime["failures"] += 1
-            runtime["canary_ok"] = False
-            # SUSPECT只说明尚未满足完整就绪条件，不自动等同于模型已死亡。
-            # 已停容器、达到阈值的503、可信停滞或前次恢复未完成，
-            # 才进入下面的恢复分支；单次业务失败或单纯探针超时不足以重启。
-            self.transition(group, "SUSPECT", "health_or_process_failure" if hard_failure or not health_ok
-                            else "canary_pending" if canary is None else "canary_failure")
-            explicit_engine_dead = runtime["engine_failures"] >= self.policy["failure_threshold"] or bool(process_dead)
-            confirmed_stall = (runtime["failures"] >= self.policy["failure_threshold"] and canary is not None
-                               and self.stalled(group, canary))
-            # 已知恢复未完成且外观已健康时，先等新canary，避免仅因后台任务尚未返回就再次重启。
-            retry_now = retry_pending and not (health_ok and not hard_failure and canary is None)
-            reason = recovery_reason(hard_failure, explicit_engine_dead, confirmed_stall, retry_now)
-            if process_dead and not hard_failure:
-                reason = "confirmed_engine_process_exit"
-            if reason is not None:
-                if self.config["mode"] == "observe":
-                    previous = runtime.get("last_recovery_proposal", {})
-                    proposal = dict(reason=reason)
-                    if group.get("partial_recovery"):
-                        kind, blocked = select_scope(group, runtime, statuses, health, self.policy["failure_threshold"])
-                        proposal.update(scope=kind, scope_blocked=blocked)
-                    elif group["topology"] == "multi_node_mixed":
-                        proposal["scope"] = "full"
-                    if any(previous.get(k) != v for k, v in proposal.items()) or self.clock() - previous.get("time", 0) >= 60:
-                        self.record("recovery_proposed", group=group["id"], **proposal)
-                        runtime["last_recovery_proposal"] = dict(proposal, time=self.clock())
-                    self.save()
-                else:
-                    self.recover(group, reason)
-            else:
-                self.save()
+                runtime["process_exit_counts"] = {}
+            self.transition(group, "UNKNOWN", "critical_fault_probe_unavailable")
+            return
+        # 命令行匹配不到不证明进程死亡（进程可改名）；只认已确认的容器停止。
+        # 规则结果作为诊断保留，业务就绪仍须完整健康及真实生成证据。
+        hard_failure = any(s.get("state") == "stopped" for s in statuses.values())
+        mismatches = {member: s.get("process_checks", []) for member, s in statuses.items()
+                      if s.get("process_ok") is False}
+        runtime["process_rule_warnings"] = mismatches
+        notice = json.dumps(mismatches, sort_keys=True)
+        if self.observation_notices.get(group["id"]) != notice:
+            if mismatches:
+                self.record("process_rule_mismatch", group=group["id"], members=mismatches,
+                                restart_authorized=False)
+                LOG.warning("group=%s served_models=%s topology=%s process_rule_mismatch members=%s; verifying inference independently",
+                            group["id"], json.dumps(self._group_log_fields(group)["served_models"], ensure_ascii=False),
+                            group["topology"], ",".join(mismatches))
+            self.observation_notices[group["id"]] = notice
+        health = self.probes(group["health_checks"])
+        health_ok = all(p.state == "pass" for p in health)
+        # 只累计显式授权的同一端点连续错误，Proxy/容量503默认只使就绪失败。
+        counts = health_failure_counts(group["health_checks"], health, runtime.get("health_failure_counts", {}))
+        runtime["health_failure_counts"] = counts
+        runtime["engine_failures"] = max(counts.values(), default=0)
+        if group.get("process_exit_detection"):
+            exited = exited_members(group, runtime, statuses, health)
+            old_counts = runtime.get("process_exit_counts", {})
+            runtime["process_exit_counts"] = {mid: old_counts.get(mid, 0) + 1 if mid in exited else 0
+                for mid in group["process_exit_detection"]["members"]}
+        process_dead = confirmed_exits(group, runtime, statuses, health)
+        if hard_failure or not health_ok:
+            self.transition(group, "SUSPECT", "health_or_process_failure")
+        now = self.clock()
+        canary = self._observe_canary(group, health_ok, hard_failure, now)
+        # 兼容旧Agent明确报告的字面规则失败，不放宽其它unhealthy原因。
+        healthy = inference_healthy(statuses, hard_failure, health_ok, runtime.get("canary_ok"))
+        runtime["inference_status"] = "verified" if healthy else "unverified"
+        if runtime["maintenance"]:
+            return
+        runtime["last_observed_at"] = self.clock()
+        if healthy:
+            remember_processes(group, runtime, statuses)
+            runtime["failures"] = 0
+            runtime["recovery_required"] = False
+            if runtime["phase"] not in {"READY", "RAMP_UP"}:
+                runtime["ready_since"] = self.clock()
+                self.transition(group, "RAMP_UP", "verified")
+            elif runtime["phase"] == "RAMP_UP" and now - runtime.get("ready_since", now) >= self.policy["ramp_up_seconds"]:
+                self.transition(group, "READY", "ramp_completed")
+            if now - runtime.get("ready_since", now) >= self.policy["stable_reset_seconds"]:
+                runtime["incident_attempts"] = 0
+            self.save()
             self.publish()
+            return
+        runtime["failures"] += 1
+        runtime["canary_ok"] = False
+        # SUSPECT只说明尚未满足完整就绪条件，不自动等同于模型已死亡。
+        # 已停容器、达到阈值的503、可信停滞或前次恢复未完成，
+        # 才进入下面的恢复分支；单次业务失败或单纯探针超时不足以重启。
+        self.transition(group, "SUSPECT", "health_or_process_failure" if hard_failure or not health_ok
+                        else "canary_pending" if canary is None else "canary_failure")
+        explicit_engine_dead = runtime["engine_failures"] >= self.policy["failure_threshold"] or bool(process_dead)
+        confirmed_stall = (runtime["failures"] >= self.policy["failure_threshold"] and canary is not None
+                           and self.stalled(group, canary))
+        # 已知恢复未完成且外观已健康时，先等新canary，避免仅因后台任务尚未返回就再次重启。
+        retry_now = retry_pending and not (health_ok and not hard_failure and canary is None)
+        reason = recovery_reason(hard_failure, explicit_engine_dead, confirmed_stall, retry_now)
+        if process_dead and not hard_failure:
+            reason = "confirmed_engine_process_exit"
+        if reason is not None:
+            if self.config["mode"] == "observe":
+                previous = runtime.get("last_recovery_proposal", {})
+                proposal = dict(reason=reason)
+                if group.get("partial_recovery"):
+                    kind, blocked = select_scope(group, runtime, statuses, health, self.policy["failure_threshold"])
+                    proposal.update(scope=kind, scope_blocked=blocked)
+                elif group["topology"] == "multi_node_mixed":
+                    proposal["scope"] = "full"
+                if any(previous.get(k) != v for k, v in proposal.items()) or self.clock() - previous.get("time", 0) >= 60:
+                    self.record("recovery_proposed", group=group["id"], **proposal)
+                    runtime["last_recovery_proposal"] = dict(proposal, time=self.clock())
+                self.save()
+            else:
+                self.recover(group, reason)
+        else:
+            self.save()
+        self.publish()
 
     def interruptible_sleep(self, seconds):
         """分段等待并持续消费维护命令，避免长等待期间失去人工控制。"""
