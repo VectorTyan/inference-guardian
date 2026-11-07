@@ -17,4 +17,6 @@ python3 -B scripts/check_vllm_status_readonly.py --self-test
 
 服务包用恢复组维护故障状态和预算，用成员关联节点与容器。Controller 的单组观测独立处理证据，Agent 的回执查询集中核对容器、恢复组、代次和启动周期。后续扩展单机多模型时可复用这些职责划分。当前服务层允许不同恢复组使用同一节点上的不同容器，同一个容器只归一个恢复组，恢复事务仍由 Controller 串行协调。标准安装清单目前提供两节点和四节点场景。
 
+代码维护按职责进入 `src/inference_guardian/` 下的 `control/`、`agent/`、`health/`、`containers/` 和 `observability/`。根目录的 `controller.py`、`config.py`、`probes.py` 等原模块保留公开导入兼容，业务实现集中在对应子包。`storage.py`、`http_client.py` 和可选 `gateway.py` 继续独立维护。部署说明列出职责及依赖方向。
+
 [部署与打包](docs/operations.md) · [恢复与演练](docs/recovery.md) · [版本说明](docs/release-notes.md)

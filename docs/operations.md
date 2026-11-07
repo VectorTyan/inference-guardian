@@ -6,6 +6,30 @@
 python3 -B scripts/make_bundle.py
 ```
 
+### 服务代码目录
+
+| 实现目录 | 职责 | 原公开导入模块 |
+| --- | --- | --- |
+| src/inference_guardian/control/ | Controller、配置、拓扑、恢复范围和 canary 调度 | controller、config、topology、recovery_scope、canary |
+| src/inference_guardian/agent/ | 节点服务、管理协议、观测、回执、管理客户端和 Agent 日志 | node_agent、node_client、agent_logging |
+| src/inference_guardian/health/ | 探针执行、故障判定、进程证据和探针显示名称 | probes、health_policy、process_evidence、probe_identity |
+| src/inference_guardian/containers/ | Docker 客户端和容器配置契约 | docker_api、container_contract |
+| src/inference_guardian/observability/ | 审计追加、日志格式和日志落盘状态 | audit、log_format、log_state |
+
+包内部使用实现路径。control 通过 agent.client 访问节点，并依赖 health 和 observability；Agent 服务依赖 containers、health 和 observability。health 和 agent.client 使用共用的 http_client。storage 和可选 gateway 继续在包根目录维护。实现子包初始化保持轻量。
+
+原公开模块通过薄兼容入口指向相同模块对象，公开类型保留历史模块名称，支持既有导入、序列化及依赖替换。兼容绑定由内部 _compat 模块集中处理。Controller 的运行日志仍使用 inference_guardian.controller 分类，Agent 使用 inference_guardian.node_agent 分类。Agent 专用台账写入与 storage 的通用写入分别维护各自的权限和序列化契约。
+
+打包器递归收集 src，Dockerfile 复制完整 src 目录。升级使用完整源码包和已有 install_guardian.py 入口，保持实现子包与兼容入口同版本。将本次三份交付文件复制到主控 packages/，把 ARCHIVE 设为该源码包路径，再执行以下命令。现有配置与 Token 继续作为部署输入，旧记录按既有重部署流程归档，恢复状态重置。
+
+```bash
+cd /data/scripts/inference-guardian
+python3 -B packages/install_guardian.py upgrade \
+  --archive "$ARCHIVE" --config config/site.json --ssh-password --mode observe
+```
+
+验收报告 passed=true 后按恢复演练文档操作。密钥 SSH 场景可省略 --ssh-password。
+
 ### 从外部目录打包
 
 同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。在本地维护时，将这些材料放到代码仓的 `local/delivery/`，测试套件放到 `local/validation/`。整个 `local/` 由 Git 和 Docker 构建上下文排除。在仓库根目录执行以下命令。
