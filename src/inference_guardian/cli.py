@@ -105,7 +105,7 @@ def main(argv=None):
     elif args.command == "controller":
         run_controller(config)
     elif args.command == "status":
-        from .probe_identity import readable_controller_state
+        from .health.identity import readable_controller_state
         print(json.dumps(readable_controller_state(
             read_json(Path(config["state_dir"]) / "state.json", {"status": "not_started"}), config), indent=2))
     else:

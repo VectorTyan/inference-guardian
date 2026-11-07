@@ -1,7 +1,7 @@
 """本机inspect/top证据采集；不创建台账、不执行容器变更。"""
 from __future__ import annotations
 from ..containers.contract import bootstrap_stage_hashes, simple_shell_pid1
-from ..process_evidence import process_identity
+from ..health.process_evidence import process_identity
 
 def _unknown(detail: str) -> dict:
     # false/0 是兼容字段的占位值，不是已停止或无故障的证据；以 unknown 为准。

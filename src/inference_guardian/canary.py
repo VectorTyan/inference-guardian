@@ -24,7 +24,7 @@ def poll_or_start(tasks, group, runtime, needed, run_canaries, stop_event, audit
     if needed and not runtime["maintenance"] and not stop_event.is_set():
         results = queue.Queue(maxsize=1)
         def execute():
-            from .probes import ProbeResult
+            from .health.probes import ProbeResult
             try:
                 result = run_canaries(group)
             except Exception as exc:

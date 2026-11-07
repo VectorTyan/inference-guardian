@@ -8,9 +8,9 @@ from __future__ import annotations
 import hashlib
 import json
 
-from .health_policy import health_failure_key
+from .health.policy import health_failure_key
 from .topology import recovery_steps
-from .process_evidence import confirmed_exits
+from .health.process_evidence import confirmed_exits
 
 
 def plan_hash(group):

@@ -13,9 +13,9 @@ import re
 from urllib.parse import urlsplit
 
 from .topology import canary_specs, validate_layout
-from .probe_identity import probe_id
+from .health.identity import probe_id
 from .recovery_scope import validate_partial
-from .process_evidence import validate_detection
+from .health.process_evidence import validate_detection
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 DEFAULT_POLICY = {

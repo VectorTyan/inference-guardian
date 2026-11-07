@@ -23,13 +23,13 @@ from .observability.log_format import utc8_timestamp
 from .config import config_hash
 from .node_client import NodeClient
 from .http_client import file_headers, request
-from .probes import ProbeResult, run_probe
-from .health_policy import (health_failure_counts, management_issue, management_contract_confirmed,
+from .health.probes import ProbeResult, run_probe
+from .health.policy import (health_failure_counts, management_issue, management_contract_confirmed,
                             inference_healthy, recovery_reason)
 from .canary import poll_or_start
 from .topology import canary_specs, recovery_steps
 from .recovery_scope import select_scope, execution_plan, plan_hash
-from .process_evidence import exited_members, confirmed_exits, remember_processes
+from .health.process_evidence import exited_members, confirmed_exits, remember_processes
 from .storage import atomic_json, read_json
 
 LOG = logging.getLogger(__name__)
