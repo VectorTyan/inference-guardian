@@ -1,6 +1,6 @@
 """本机inspect/top证据采集；不创建台账、不执行容器变更。"""
 from __future__ import annotations
-from ..container_contract import bootstrap_stage_hashes, simple_shell_pid1
+from ..containers.contract import bootstrap_stage_hashes, simple_shell_pid1
 from ..process_evidence import process_identity
 
 def _unknown(detail: str) -> dict:

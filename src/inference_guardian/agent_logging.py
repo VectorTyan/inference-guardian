@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 
-from .log_format import OperationsFormatter, utc8_timestamp
+from .observability.log_format import OperationsFormatter, utc8_timestamp
 
 
 DEFAULTS = {"max_bytes": 10 * 1024 * 1024, "backup_count": 5,

@@ -25,13 +25,13 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from ..audit import AuditLog
+from ..observability.audit import AuditLog
 from ..agent_logging import AgentLog, validate_logging
 from .config import validate_config, _number
 from .. import __version__
-from ..container_contract import bootstrap_stage_hashes, container_config_hash, simple_shell_pid1
-from ..docker_api import DockerClient, DockerError, MAX_LOG_BYTES
-from ..log_format import utc8_timestamp
+from ..containers.contract import bootstrap_stage_hashes, container_config_hash, simple_shell_pid1
+from ..containers.docker_api import DockerClient, DockerError, MAX_LOG_BYTES
+from ..observability.log_format import utc8_timestamp
 from .observation import _unknown, _commands, observe_container
 from .receipts import completed_stop as _completed_stop_receipt
 from .receipts import bootstrap_start_confirmed as _bootstrap_start_confirmed

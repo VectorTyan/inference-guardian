@@ -11,10 +11,10 @@ from pathlib import Path
 import signal
 import threading
 
-from .audit import AuditLog, verify
+from .observability.audit import AuditLog, verify
 from .config import load_config
 from .controller import Controller, queue_command
-from .log_format import OperationsFormatter, DurableFileHandler
+from .observability.log_format import OperationsFormatter, DurableFileHandler
 from .storage import FileLock, read_json
 
 

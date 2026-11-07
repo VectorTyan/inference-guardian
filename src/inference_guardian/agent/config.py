@@ -4,7 +4,7 @@ import json
 from pathlib import PurePosixPath
 import re
 from ..agent_logging import validate_logging
-from ..docker_api import DockerClient
+from ..containers.docker_api import DockerClient
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _ACTION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")

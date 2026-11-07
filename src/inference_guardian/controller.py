@@ -18,8 +18,8 @@ import threading
 import time
 import uuid
 
-from .audit import AuditLog, sanitize
-from .log_format import utc8_timestamp
+from .observability.audit import AuditLog, sanitize
+from .observability.log_format import utc8_timestamp
 from .config import config_hash
 from .node_client import NodeClient
 from .http_client import file_headers, request
