@@ -8,19 +8,21 @@ python3 -B scripts/make_bundle.py
 
 ### 服务代码目录
 
-| 实现目录 | 职责 | 原公开导入模块 |
+| 实现目录 | 职责 | 当前导入模块（inference_guardian. 前缀） |
 | --- | --- | --- |
-| src/inference_guardian/control/ | Controller、配置、拓扑、恢复范围和 canary 调度 | controller、config、topology、recovery_scope、canary |
-| src/inference_guardian/agent/ | 节点服务、管理协议、观测、回执、管理客户端和 Agent 日志 | node_agent、node_client、agent_logging |
-| src/inference_guardian/health/ | 探针执行、故障判定、进程证据和探针显示名称 | probes、health_policy、process_evidence、probe_identity |
-| src/inference_guardian/containers/ | Docker 客户端和容器配置契约 | docker_api、container_contract |
-| src/inference_guardian/observability/ | 审计追加、日志格式和日志落盘状态 | audit、log_format、log_state |
+| src/inference_guardian/control/ | Controller、配置、拓扑、恢复范围和 canary 调度 | control.service、control.config、control.topology、control.recovery_scope、control.canary |
+| src/inference_guardian/agent/ | 节点服务、管理协议、观测、回执、管理客户端和 Agent 日志 | agent.service、agent.http、agent.config、agent.observation、agent.receipts、agent.client、agent.logging |
+| src/inference_guardian/health/ | 探针执行、故障判定、进程证据和探针显示名称 | health.probes、health.policy、health.process_evidence、health.identity |
+| src/inference_guardian/containers/ | Docker 客户端和容器配置契约 | containers.docker_api、containers.contract |
+| src/inference_guardian/observability/ | 审计追加、日志格式和日志落盘状态 | observability.audit、observability.log_format、observability.log_state |
 
 包内部使用实现路径。control 通过 agent.client 访问节点，并依赖 health 和 observability；Agent 服务依赖 containers、health 和 observability。health 和 agent.client 使用共用的 http_client。storage 和可选 gateway 继续在包根目录维护。实现子包初始化保持轻量。
 
-原公开模块通过薄兼容入口指向相同模块对象，公开类型保留历史模块名称，支持既有导入、序列化及依赖替换。兼容绑定由内部 _compat 模块集中处理。Controller 的运行日志仍使用 inference_guardian.controller 分类，Agent 使用 inference_guardian.node_agent 分类。Agent 专用台账写入与 storage 的通用写入分别维护各自的权限和序列化契约。
+v0.30.0 已移除旧平铺 Python 导入路径与动态映射。Python 调用方需把 controller.Controller 改为 control.service.Controller，把 node_agent.NodeAgent 改为 agent.service.NodeAgent，把 probes.ProbeResult 改为 health.probes.ProbeResult，并按上表迁移其余导入。以上名称均带 inference_guardian. 前缀。新类型使用其真实模块身份，旧类型 pickle 数据需由旧版调用方处理。Guardian 持久状态采用既有 JSON 协议。
 
-打包器递归收集 src，Dockerfile 复制完整 src 目录。升级使用完整源码包和已有 install_guardian.py 入口，保持实现子包与兼容入口同版本。将本次三份交付文件复制到主控 packages/，把 ARCHIVE 设为该源码包路径，再执行以下命令。现有配置与 Token 继续作为部署输入，旧记录按既有重部署流程归档，恢复状态重置。
+根目录 node_agent.py 仅提供 python -m inference_guardian.node_agent 命令，标准入口仍为 python -m inference_guardian。运维日志的固定分类继续使用 inference_guardian.controller 和 inference_guardian.node_agent。Agent 专用台账写入与 storage 的通用写入分别维护各自的权限和序列化契约。
+
+打包器递归收集 src，Dockerfile 复制完整 src 目录。升级使用完整源码包和已有 install_guardian.py 入口，保持宿主工具与服务包同版本。将本次三份交付文件复制到主控 packages/，把 ARCHIVE 设为该源码包路径，再执行以下命令。现有配置与 Token 继续作为部署输入，旧记录按既有重部署流程归档，恢复状态重置。
 
 ```bash
 cd /data/scripts/inference-guardian
