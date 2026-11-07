@@ -32,6 +32,8 @@ python3 -B packages/install_guardian.py upgrade \
 
 验收报告 passed=true 后按恢复演练文档操作。密钥 SSH 场景可省略 --ssh-password。
 
+复用发布目录时若报告 `unexpected release source`，按错误中的相对路径核对 src/scripts 内清单外的内容，恢复该发布目录后重试。正常 `__pycache__` 可以保留。镜像准备自检会加载实际启动入口及所需模块，并核对版本；依赖缺失会在停止旧 Guardian 前中止准备。
+
 ### 从外部目录打包
 
 同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。在本地维护时，将这些材料放到代码仓的 `local/delivery/`，测试套件放到 `local/validation/`。整个 `local/` 由 Git 和 Docker 构建上下文排除。在仓库根目录执行以下命令。

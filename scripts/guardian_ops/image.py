@@ -7,11 +7,14 @@ from .transport import command, OCIStartupDenied, SeccompInitError
 from inference_guardian.storage import read_json, atomic_json
 
 def probe_startup(image_id, version, role=None):
-    """在本机隔离网络、不挂载数据的临时容器中验证目标角色能启动。"""
+    """在隔离临时容器中加载启动入口并核对版本，不读取运行配置或启动服务。"""
     docker = ['docker', '--host', 'unix:///var/run/docker.sock']
     args = docker + ['run', '--rm', '--network', 'none'] + (role_security_args(role) if role else [])
     program = ['--entrypoint', 'python', image_id, '-c',
-               'from inference_guardian import __version__; print(__version__)']
+               'from inference_guardian import __version__; '
+               'import inference_guardian.__main__, inference_guardian.node_agent; '
+               'from inference_guardian.gateway import GatewayState, create_server; '
+               'print(__version__)']
     try:
         output = command(args + program, startup_probe=True)
         policy = 'default'

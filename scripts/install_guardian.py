@@ -74,6 +74,16 @@ def check_extracted(directory, manifest):
             raise ValueError('existing release source has drifted: ' + item['path'])
     if json.loads((directory / 'MANIFEST.json').read_text(encoding='utf-8')) != manifest:
         raise ValueError('existing release manifest differs')
+    # 复用源码时也核对新增内容，避免已移除的旧模块被重新导入或带入镜像。
+    # 正常解释器缓存允许保留；配置、Token和状态均位于源码树之外。
+    listed = {item['path'] for item in manifest['files']}
+    allowed = listed | {parent.as_posix() for name in listed for parent in PurePosixPath(name).parents}
+    for name in ('src', 'scripts'):
+        source = safe_directory(directory / name, directory)
+        for path in source.rglob('*'):
+            relative = path.relative_to(directory)
+            if path.is_symlink() or ('__pycache__' not in relative.parts and relative.as_posix() not in allowed):
+                raise ValueError('unexpected release source: ' + relative.as_posix())
 
 
 def extract_release(archive, expected, root=INSTALL_ROOT):
