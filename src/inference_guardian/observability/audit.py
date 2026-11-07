@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.audit")
-
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -105,3 +103,6 @@ class AuditLog:
                 raise
             self.seq, self.previous = record["seq"], checksum
             return checksum
+
+
+_retain_import_identity(__name__, "inference_guardian.audit")

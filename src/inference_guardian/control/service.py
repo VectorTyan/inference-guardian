@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.controller")
-
 from concurrent.futures import ThreadPoolExecutor
 import json
 import copy
@@ -36,7 +34,7 @@ from .recovery_scope import select_scope, execution_plan, plan_hash
 from ..health.process_evidence import exited_members, confirmed_exits, remember_processes
 from ..storage import atomic_json, read_json
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("inference_guardian.controller")
 ACTIVE_PHASES = {"DRAINING", "SNAPSHOT", "STOPPING", "STARTING", "VALIDATING"}
 
 
@@ -840,3 +838,6 @@ def queue_command(directory, group, action):
     command_id = f"{time.time_ns():020d}-{uuid.uuid4()}"
     atomic_json(Path(directory) / "commands" / f"{command_id}.json", {"group": group, "action": action})
     return command_id
+
+
+_retain_import_identity(__name__, "inference_guardian.controller")

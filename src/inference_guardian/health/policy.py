@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.health_policy")
-
 import hashlib
 
 
@@ -75,3 +73,6 @@ def recovery_reason(hard_failure, explicit_engine_dead, confirmed_stall, retry_n
     if retry_now:
         return "previous_recovery_incomplete"
     return None
+
+
+_retain_import_identity(__name__, "inference_guardian.health_policy")

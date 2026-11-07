@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.recovery_scope")
-
 import hashlib
 import json
 
@@ -97,3 +95,6 @@ def validate_partial(group, require, validate_probe, validate_layout):
     for step in policy["recovery_steps"]:
         require(all(p.get("id") in checks and p == checks[p["id"]] for p in step.get("checks", [])),
                 "partial recovery step checks must match group health checks")
+
+
+_retain_import_identity(__name__, "inference_guardian.recovery_scope")

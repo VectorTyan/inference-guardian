@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.agent_logging")
-
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -141,3 +139,6 @@ class AgentLog:
             for handler in list(self.logger.handlers):
                 self.logger.removeHandler(handler)
                 handler.close()
+
+
+_retain_import_identity(__name__, "inference_guardian.agent_logging")

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.container_contract")
-
 import hashlib
 import json
 import math
@@ -145,3 +143,6 @@ def container_config_hash(info: dict) -> str:
 
 fingerprint_container = container_config_hash
 fingerprint = container_config_hash
+
+
+_retain_import_identity(__name__, "inference_guardian.container_contract")

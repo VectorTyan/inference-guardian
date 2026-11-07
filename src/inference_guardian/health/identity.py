@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.probe_identity")
-
 import copy
 
 from .policy import health_failure_key
@@ -31,3 +29,6 @@ def readable_controller_state(state, config):
                  for index, spec in enumerate(group["health_checks"])}
         runtime["health_failure_counts"] = {names.get(key, "unmapped." + key): value for key, value in counts.items()}
     return result
+
+
+_retain_import_identity(__name__, "inference_guardian.probe_identity")

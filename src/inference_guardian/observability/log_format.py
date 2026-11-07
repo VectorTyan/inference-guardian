@@ -1,8 +1,6 @@
 """统一运行日志的UTC+8显示，不依赖宿主TZ、容器时区或tzdata。"""
 
 from .._compat import _retain_import_identity
-
-_retain_import_identity(__name__, "inference_guardian.log_format")
 from datetime import datetime, timedelta, timezone
 import logging
 from logging.handlers import RotatingFileHandler
@@ -57,3 +55,6 @@ class DurableFileHandler(RotatingFileHandler):
 
     def handleError(self, record):
         raise OSError("Controller log write failed; check host state storage") from None
+
+
+_retain_import_identity(__name__, "inference_guardian.log_format")

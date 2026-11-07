@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.process_evidence")
-
 import copy
 import hashlib
 import json
@@ -130,3 +128,6 @@ def validate_detection(group, require):
         names = value["checks"]
         require(isinstance(names, list) and names and all(isinstance(n, str) for n in names)
                 and len(names) == len(set(names)) and set(names) <= checks, "invalid process exit check references")
+
+
+_retain_import_identity(__name__, "inference_guardian.process_evidence")

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 from .._compat import _retain_import_identity
-
-_retain_import_identity(__name__, "inference_guardian.node_client")
 import json
 import logging
 import threading
@@ -81,3 +79,5 @@ class NodeClient:
             with self.status_locks[endpoint]:
                 self.status_cache.pop(endpoint, None)
 
+
+_retain_import_identity(__name__, "inference_guardian.node_client")

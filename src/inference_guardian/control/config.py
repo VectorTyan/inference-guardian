@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.config")
-
 import copy
 import hashlib
 import json
@@ -266,3 +264,6 @@ def load_config(path):
 def config_hash(c):
     """为已解析的完整配置计算稳定指纹，用于拒绝旧配置下的状态或就绪证据。"""
     return hashlib.sha256(json.dumps(c, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+_retain_import_identity(__name__, "inference_guardian.config")

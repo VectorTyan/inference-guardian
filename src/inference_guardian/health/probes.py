@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from .._compat import _retain_import_identity
 
-_retain_import_identity(__name__, "inference_guardian.probes")
-
 from dataclasses import dataclass
 import json
 import socket
@@ -131,3 +129,6 @@ def http_error_types():
     """提供标准库HTTP异常类型，使传输失败统一归为unknown。"""
     import http.client
     return http.client.HTTPException
+
+
+_retain_import_identity(__name__, "inference_guardian.probes")
