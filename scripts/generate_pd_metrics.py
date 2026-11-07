@@ -61,6 +61,8 @@ def instance_layout(manifest, nodes, controller):
 def make_targets(manifest, inventory, controller=None, proxy_url=None):
     if not isinstance(manifest, dict) or is_mixed(manifest):
         raise ValueError("PD source manifest required")
+    if manifest.get("version") not in (5, 6):
+        raise ValueError("PD metrics requires a v5 or v6 manifest; legacy manifests pin the Proxy source hash")
     nodes = validate_manifest(manifest)
     instances = instance_layout(manifest, nodes, controller)
     cluster = identifier(inventory["cluster"], "cluster")

@@ -4,7 +4,7 @@ Guardian 从已审阅的四机 P/D 部署清单生成 P0 转发允许列表和 P
 
 ## 生成采集文件
 
-使用与现场部署一致的 `source-manifest.json` 和未适配的 Proxy Python 源码。服务器资产文件示例适用于公开四机示例，现场将 `server_id` 替换为资产系统中的稳定 ID。
+使用与现场部署一致的 v5 或 v6 `source-manifest.json` 和未适配的 Proxy Python 源码。v3/v4 清单固定了 Proxy 源文件摘要，应先通过 Guardian 的既有升级流程迁移。服务器资产文件示例适用于公开四机示例，现场将 `server_id` 替换为资产系统中的稳定 ID。
 
 ```json
 {
