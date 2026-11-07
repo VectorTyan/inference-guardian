@@ -33,6 +33,8 @@ from ..container_contract import bootstrap_stage_hashes, container_config_hash, 
 from ..docker_api import DockerClient, DockerError, MAX_LOG_BYTES
 from ..log_format import utc8_timestamp
 from .observation import _unknown, _commands, observe_container
+from .receipts import completed_stop as _completed_stop_receipt
+from .receipts import bootstrap_start_confirmed as _bootstrap_start_confirmed
 
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
@@ -509,14 +511,7 @@ class NodeAgent:
 
     def _completed_stop(self, payload, container_id):
         """查找同一容器实例、恢复世代和恢复组中已确认成功的最近一次 stop。"""
-        candidates = [record for record in self.records.values()
-                      if record["payload"]["container"] == payload["container"]
-                      and record["payload"]["action"] == "stop"
-                      and record["payload"]["generation"] == payload["generation"]
-                      and record["payload"]["recovery_group"] == payload["recovery_group"]
-                      and record.get("container_id") == container_id
-                      and record["phase"] == "complete" and record.get("response", {}).get("ok") is True]
-        return max(candidates, key=lambda record: record.get("created_at", 0), default=None)
+        return _completed_stop_receipt(self.records.values(), payload, container_id)
 
     def _bootstrap_preconditions(self, payload, info):
         """要求同世代已完成 stop→start，且 StartedAt 仍是记录中的启动周期。
@@ -532,21 +527,8 @@ class NodeAgent:
             if (previous["action"] == "bootstrap" and previous["container"] == payload["container"]
                     and previous["generation"] == payload["generation"] and previous["stage"] == payload["stage"]):
                 raise AgentError(409, "Bootstrap stage already has an action in this generation; no replay")
-        for record in self.records.values():
-            previous = record["payload"]
-            if (previous["action"] != "start" or previous["container"] != payload["container"]
-                    or previous["generation"] != payload["generation"]
-                    or previous["recovery_group"] != payload["recovery_group"]
-                    or record["phase"] != "complete" or record.get("response", {}).get("ok") is not True
-                    or record.get("container_id") != info["Id"] or record.get("started_at") != started_at):
-                continue
-            stop = self.records.get(record.get("preceding_stop_action_id"))
-            if (stop and stop["phase"] == "complete" and stop.get("response", {}).get("ok") is True
-                    and stop["payload"]["action"] == "stop" and stop.get("container_id") == info["Id"]
-                    and stop["payload"]["container"] == payload["container"]
-                    and stop["payload"]["generation"] == payload["generation"]
-                    and stop["payload"]["recovery_group"] == payload["recovery_group"]):
-                return started_at
+        if _bootstrap_start_confirmed(self.records, payload, info["Id"], started_at):
+            return started_at
         raise AgentError(409, "Bootstrap requires completed stop then start in the same generation and startup epoch")
 
     def _bootstrap_progress(self, record, progress, **fields):
