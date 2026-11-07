@@ -20,7 +20,7 @@ DEPLOY_FILES = ("deploy/Dockerfile", "deploy/site.example.json", "deploy/presets
                 "deploy/python-3.12-slim-bookworm-arm64.tar.xz")
 # 部署工具和现场文档显式列出；新增开发工具/规则/审查稿不会自动进入交付。
 SCRIPT_FILES = tuple("scripts/" + name + ".py" for name in (
-    "check_mooncake_preflight", "check_vllm_status_readonly", "generate_external_profiles",
+    "check_mooncake_preflight", "check_vllm_status_readonly", "generate_external_profiles", "generate_pd_metrics",
     "generate_node_tokens", "guardian_deploy", "guardian_schema", "mooncake_contract", "probe_config", "verify_guardian",
     "install_guardian", "guardian_rollout", "rollout_node", "rollout_state", "recommission", "guardian_inspect"))
 HOST_MODULES = ('__init__', 'deployment', 'components', 'rollout', 'node_release', 'release_state', 'inspection', 'verification', 'recommission', 'probe_config', 'mooncake_contract', 'profile_generation', 'preflight', 'tokens')
@@ -28,7 +28,7 @@ HOST_MODULES += ('release_files', 'site', 'credentials', 'profile', 'transport',
 HOST_MODULES += ('uninstall',)
 SCRIPT_FILES += tuple("scripts/guardian_ops/" + name + ".py" for name in HOST_MODULES)
 DOC_FILES = tuple("docs/" + name for name in (
-    "operations.md", "recovery.md", "delivery.md", "image-distribution.md", "release-notes.md"))
+    "operations.md", "recovery.md", "delivery.md", "image-distribution.md", "release-notes.md", "pd-metrics.md"))
 EXCLUDE = {".demo", ".runtime", "dist", "state", "reports", "archive", "tests", "__pycache__", ".git", ".pytest_cache"}
 
 

@@ -20,3 +20,5 @@ python3 -B scripts/check_vllm_status_readonly.py --self-test
 代码维护和 Python 调用统一使用 `src/inference_guardian/` 下的 `control/`、`agent/`、`health/`、`containers/` 和 `observability/`。自 v0.30.0 起，旧的 `inference_guardian.controller` 等平铺导入路径已移除，调用方需按部署说明迁移到新路径。`storage.py`、`http_client.py` 和可选 `gateway.py` 继续独立维护，`node_agent.py` 仅承担原命令行启动入口。
 
 [部署与打包](docs/operations.md) · [恢复与演练](docs/recovery.md) · [版本说明](docs/release-notes.md)
+
+P/D 部署可[复用 P0 端口采集引擎指标并写入 AOM](docs/pd-metrics.md)。
