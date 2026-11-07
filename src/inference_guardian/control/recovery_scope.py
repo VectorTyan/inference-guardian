@@ -5,7 +5,6 @@ Controller在首次变更前持久化选择，重启后不能把局部失败默�
 """
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import hashlib
 import json
@@ -95,6 +94,3 @@ def validate_partial(group, require, validate_probe, validate_layout):
     for step in policy["recovery_steps"]:
         require(all(p.get("id") in checks and p == checks[p["id"]] for p in step.get("checks", [])),
                 "partial recovery step checks must match group health checks")
-
-
-_retain_import_identity(__name__, "inference_guardian.recovery_scope")

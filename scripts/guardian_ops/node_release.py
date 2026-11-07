@@ -22,10 +22,10 @@ from .release_files import file_hash, safe_directory
 from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, DEPLOYMENT_ID, PROFILE, path_only_command_upgrade
 from .release_state import NODES, Receipts, RolloutError, error_record, snapshot, tree_manifest, write_private, require_state_history
 from .recommission import Recommission, guardian_inventory, data_paths
-from inference_guardian.audit import AuditLog, verify as verify_audit
-from inference_guardian.container_contract import bootstrap_stage_hashes
+from inference_guardian.observability.audit import AuditLog, verify as verify_audit
+from inference_guardian.containers.contract import bootstrap_stage_hashes
 from inference_guardian.storage import FileLock, atomic_json, read_json
-from inference_guardian.log_format import utc8_timestamp
+from inference_guardian.observability.log_format import utc8_timestamp
 from .verification import verify_deployment
 from .uninstall import UninstallNode, restore_record, marker_path
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from inference_guardian.container_contract import fingerprint
+from inference_guardian.containers.contract import fingerprint
 
 IMAGE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 CID = re.compile(r"[0-9a-f]{64}\Z")

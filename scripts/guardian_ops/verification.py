@@ -14,14 +14,14 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 from .deployment import DEFAULT_STATE_ROOT, GuardianDeployment, remap_secrets
-from inference_guardian.audit import verify
-from inference_guardian.config import validate
-from inference_guardian.container_contract import bootstrap_stage_hashes
+from inference_guardian.observability.audit import verify
+from inference_guardian.control.config import validate
+from inference_guardian.containers.contract import bootstrap_stage_hashes
 from inference_guardian.http_client import file_headers, request
 from inference_guardian.storage import read_json
-from inference_guardian.topology import canary_specs
-from inference_guardian.probe_identity import probe_id, probe_description
-from inference_guardian.log_state import file_log_status
+from inference_guardian.control.topology import canary_specs
+from inference_guardian.health.identity import probe_id, probe_description
+from inference_guardian.observability.log_state import file_log_status
 
 
 def agent_get(spec, path, headers):

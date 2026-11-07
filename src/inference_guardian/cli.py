@@ -90,7 +90,7 @@ def main(argv=None):
     p.add_argument("--directory", required=True)
     args = parser.parse_args(argv)
     if args.command == "agent":
-        from .node_agent import main as agent_main
+        from .agent.http import main as agent_main
         return agent_main(["--config", args.config])
     if args.command == "audit-verify":
         print(json.dumps(verify(args.directory), indent=2))

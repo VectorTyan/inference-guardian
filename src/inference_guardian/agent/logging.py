@@ -1,7 +1,6 @@
 """Agent运维日志：独立轮转、受控事件与周期摘要，不替代动作审计台账。"""
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import json
 import logging
@@ -139,6 +138,3 @@ class AgentLog:
             for handler in list(self.logger.handlers):
                 self.logger.removeHandler(handler)
                 handler.close()
-
-
-_retain_import_identity(__name__, "inference_guardian.agent_logging")

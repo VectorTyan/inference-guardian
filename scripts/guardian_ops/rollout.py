@@ -26,7 +26,7 @@ from .uninstall import read_marker, marker_path, plan_uninstall, execute_uninsta
 from .release_state import NODES, Receipts, RolloutError, error_record, load_site, tree_manifest, write_private
 from inference_guardian import read_source_version
 from inference_guardian.storage import FileLock, atomic_json, read_json
-from inference_guardian.log_format import utc8_timestamp
+from inference_guardian.observability.log_format import utc8_timestamp
 
 
 def freeze_profile(source, site, *, migrate=False):

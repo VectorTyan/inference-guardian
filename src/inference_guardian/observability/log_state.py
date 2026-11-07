@@ -1,6 +1,5 @@
 """只读查看持久日志元数据，不读取日志正文或创建文件。"""
 
-from .._compat import _retain_import_identity
 from pathlib import Path
 import time
 from .log_format import utc8_timestamp
@@ -15,6 +14,3 @@ def file_log_status(path):
     result.update(exists=True, bytes=info.st_size, modified_at=utc8_timestamp(info.st_mtime),
                   age_seconds=round(max(0, time.time() - info.st_mtime), 1))
     return result
-
-
-_retain_import_identity(__name__, "inference_guardian.log_state")

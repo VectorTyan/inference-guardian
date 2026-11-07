@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-from inference_guardian.config import validate
+from inference_guardian.control.config import validate
 from .deployment import DEFAULT_SECRETS_DIR
 
 

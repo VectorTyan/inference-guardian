@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import re
 
@@ -94,6 +93,3 @@ def validate_layout(group, members, require, validate_probe):
         for check in step.get("checks", []):
             validate_probe(check, f"{gid}: recovery check")
     require(started == members, f"{gid}: recovery steps must start every member exactly once")
-
-
-_retain_import_identity(__name__, "inference_guardian.topology")

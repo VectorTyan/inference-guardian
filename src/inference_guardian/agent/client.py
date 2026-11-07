@@ -1,7 +1,6 @@
 """Agent管理HTTP、节点身份及短期状态缓存；失败不重试变更。"""
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 import json
 import logging
 import threading
@@ -78,6 +77,3 @@ class NodeClient:
             endpoint = self.nodes[member["node"]]["url"]
             with self.status_locks[endpoint]:
                 self.status_cache.pop(endpoint, None)
-
-
-_retain_import_identity(__name__, "inference_guardian.node_client")

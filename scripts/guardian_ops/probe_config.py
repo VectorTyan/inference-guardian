@@ -7,7 +7,7 @@ import string
 import sys
 from urllib.parse import urlsplit
 
-from inference_guardian.config import validate_probe
+from inference_guardian.control.config import validate_probe
 from .mooncake_contract import is_mixed, endpoint_counts, validate_manifest, manifest_group_id, SCENARIO, MIXED_SCENARIO
 
 

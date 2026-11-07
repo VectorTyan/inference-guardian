@@ -14,7 +14,7 @@ from .mooncake_contract import DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, LAYOUT, PR
 from .mooncake_contract import MIXED_EXAMPLE, MIXED_ID, MIXED_PROFILE, MIXED_EXAMPLES, manifest_deployment_id, manifest_group_id, is_mixed
 from .presets import PACKAGED_EXAMPLES as _PACKAGED_EXAMPLES
 from .probe_config import mixed_steps, build_probe_contract, build_partial_recovery, build_exit_detection
-from inference_guardian.config import validate as validate_controller
+from inference_guardian.control.config import validate as validate_controller
 from inference_guardian.agent.config import validate_config as validate_agent
 
 ROOT = Path(__file__).resolve().parents[2]

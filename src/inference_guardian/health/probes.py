@@ -5,7 +5,6 @@ unknown表示网络/鉴权/端点/容量等原因使观测不足；三者都不�
 """
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 from dataclasses import dataclass
 import json
@@ -129,6 +128,3 @@ def http_error_types():
     """提供标准库HTTP异常类型，使传输失败统一归为unknown。"""
     import http.client
     return http.client.HTTPException
-
-
-_retain_import_identity(__name__, "inference_guardian.probes")

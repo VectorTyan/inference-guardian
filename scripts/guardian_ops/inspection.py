@@ -15,10 +15,10 @@ from .release_files import INSTALL_ROOT, safe_directory, digest, write_private
 from .mooncake_contract import DEPLOYMENT_ID, PROFILE, MIXED_PROFILE, MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS
 from .release_state import NODES, load_site, Receipts
 from .verification import agent_get, verify_deployment
-from inference_guardian.audit import AuditLog, verify as verify_audit
-from inference_guardian.container_contract import container_config_hash
-from inference_guardian.config import config_hash
-from inference_guardian.log_format import utc8_timestamp
+from inference_guardian.observability.audit import AuditLog, verify as verify_audit
+from inference_guardian.containers.contract import container_config_hash
+from inference_guardian.control.config import config_hash
+from inference_guardian.observability.log_format import utc8_timestamp
 from inference_guardian.http_client import file_headers
 from inference_guardian.storage import read_json, atomic_json, FileLock
 

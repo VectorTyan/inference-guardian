@@ -1,7 +1,6 @@
 """将明确授权的健康端点错误转为重启证据，避免Proxy/容量503误触发整组恢复。"""
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import hashlib
 
@@ -73,6 +72,3 @@ def recovery_reason(hard_failure, explicit_engine_dead, confirmed_stall, retry_n
     if retry_now:
         return "previous_recovery_incomplete"
     return None
-
-
-_retain_import_identity(__name__, "inference_guardian.health_policy")

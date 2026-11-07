@@ -1,7 +1,6 @@
 """将已验收进程的消失与字面规则失配区分；不从500或网络超时猜进程死亡。"""
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import copy
 import hashlib
@@ -128,6 +127,3 @@ def validate_detection(group, require):
         names = value["checks"]
         require(isinstance(names, list) and names and all(isinstance(n, str) for n in names)
                 and len(names) == len(set(names)) and set(names) <= checks, "invalid process exit check references")
-
-
-_retain_import_identity(__name__, "inference_guardian.process_evidence")

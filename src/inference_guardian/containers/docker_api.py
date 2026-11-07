@@ -11,7 +11,6 @@ https://docs.docker.com/reference/api/engine/version/v1.45/
 
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import http.client
 import json
@@ -247,6 +246,3 @@ def _decode_logs(raw: bytes) -> str:
         chunks.append(raw[position:min(position + length, len(raw))])
         position += length
     return b"".join(chunks).decode("utf-8", errors="replace")
-
-
-_retain_import_identity(__name__, "inference_guardian.docker_api")

@@ -5,10 +5,10 @@ import re
 from .release_files import digest
 from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, manifest_deployment_id, MIXED_PROFILE, is_mixed, DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, PROFILE, validate_manifest, node_commands
 from .probe_config import validate_profile_probes
-from inference_guardian.config import validate as validate_controller
+from inference_guardian.control.config import validate as validate_controller
 from inference_guardian.agent.config import validate_config as validate_agent
 from inference_guardian.storage import read_json
-from inference_guardian.topology import recovery_steps
+from inference_guardian.control.topology import recovery_steps
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\Z")
 

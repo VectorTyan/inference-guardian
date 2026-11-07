@@ -28,18 +28,18 @@ from .components import CID, IMAGE, GuardianDocker, document
 from .preflight import check_local as check_mooncake_local
 from .mooncake_contract import DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, PROFILE, node_commands, validate_manifest
 from inference_guardian import read_source_version
-from inference_guardian.audit import AuditLog
-from inference_guardian.config import config_hash, validate as validate_controller
-from inference_guardian.container_contract import bootstrap_stage_hashes, fingerprint, simple_shell_pid1
-from inference_guardian.node_client import NodeClient
-from inference_guardian.controller import queue_command
+from inference_guardian.observability.audit import AuditLog
+from inference_guardian.control.config import config_hash, validate as validate_controller
+from inference_guardian.containers.contract import bootstrap_stage_hashes, fingerprint, simple_shell_pid1
+from inference_guardian.agent.client import NodeClient
+from inference_guardian.control.service import queue_command
 from inference_guardian.gateway import validate_config as validate_gateway
 from inference_guardian.agent.config import validate_config as validate_agent
-from inference_guardian.probes import run_probe
-from inference_guardian.probe_identity import readable_controller_state
+from inference_guardian.health.probes import run_probe
+from inference_guardian.health.identity import readable_controller_state
 from .probe_config import validate_profile_probes
 from inference_guardian.storage import FileLock, atomic_json, read_json
-from inference_guardian.topology import canary_specs, recovery_steps
+from inference_guardian.control.topology import canary_specs, recovery_steps
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}\Z")
 SECRET_ROOT = "/run/secrets/inference-guardian/"
@@ -714,7 +714,7 @@ class GuardianDeployment:
                 components[service] = {"id": info["Id"], "running": info["State"]["Running"]} if info else None
             state = (readable_controller_state(self.controller_state(), validate_controller(read_json(self.runtime / "controller.json")))
                      if self.is_controller else None)
-        from inference_guardian.log_state import file_log_status
+        from inference_guardian.observability.log_state import file_log_status
         log_files = {role: file_log_status(self.state / role / "inference-guardian.log")
                      for role in (["agent", "controller"] if self.is_controller else ["agent"])}
         return {"node": self.node, "models": baseline["models"], "components": components, "log_files": log_files,

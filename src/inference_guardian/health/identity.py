@@ -1,7 +1,6 @@
 """运维显示用探针名称；不改探针地址、重启授权或持久故障计数身份。"""
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import copy
 
@@ -29,6 +28,3 @@ def readable_controller_state(state, config):
                  for index, spec in enumerate(group["health_checks"])}
         runtime["health_failure_counts"] = {names.get(key, "unmapped." + key): value for key, value in counts.items()}
     return result
-
-
-_retain_import_identity(__name__, "inference_guardian.probe_identity")

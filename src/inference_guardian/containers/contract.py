@@ -7,7 +7,6 @@ Env/Cmd 等敏感配置仅参与哈希，不作为返回值、日志或异常详
 
 from __future__ import annotations
 
-from .._compat import _retain_import_identity
 
 import hashlib
 import json
@@ -143,6 +142,3 @@ def container_config_hash(info: dict) -> str:
 
 fingerprint_container = container_config_hash
 fingerprint = container_config_hash
-
-
-_retain_import_identity(__name__, "inference_guardian.container_contract")

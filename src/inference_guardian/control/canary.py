@@ -1,6 +1,5 @@
 """每组单在途canary任务；结果绑定代次，线程只投递结果，不修改恢复状态。"""
 
-from .._compat import _retain_import_identity
 import queue
 import threading
 
@@ -36,6 +35,3 @@ def poll_or_start(tasks, group, runtime, needed, run_canaries, stop_event, audit
         tasks[gid] = task
         threading.Thread(target=execute, name="canary-" + gid, daemon=True).start()
     return None
-
-
-_retain_import_identity(__name__, "inference_guardian.canary")

@@ -4,7 +4,7 @@ import re
 
 from .deployment import DEFAULT_STATE_ROOT, PREVIOUS_STATE_ROOT, LEGACY_STATE_ROOT
 from .components import document
-from inference_guardian.container_contract import fingerprint
+from inference_guardian.containers.contract import fingerprint
 from .release_state import RolloutError
 
 
