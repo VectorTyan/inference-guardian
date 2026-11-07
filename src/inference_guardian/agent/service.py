@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from ..observability.audit import AuditLog
-from ..agent_logging import AgentLog, validate_logging
+from .logging import AgentLog, validate_logging
 from .config import validate_config, _number
 from .. import __version__
 from ..containers.contract import bootstrap_stage_hashes, container_config_hash, simple_shell_pid1

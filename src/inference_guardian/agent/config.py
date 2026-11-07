@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import PurePosixPath
 import re
-from ..agent_logging import validate_logging
+from .logging import validate_logging
 from ..containers.docker_api import DockerClient
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")

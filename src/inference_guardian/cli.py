@@ -12,8 +12,8 @@ import signal
 import threading
 
 from .observability.audit import AuditLog, verify
-from .config import load_config
-from .controller import Controller, queue_command
+from .control.config import load_config
+from .control.service import Controller, queue_command
 from .observability.log_format import OperationsFormatter, DurableFileHandler
 from .storage import FileLock, read_json
 
