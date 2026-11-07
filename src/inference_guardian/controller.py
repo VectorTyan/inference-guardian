@@ -394,6 +394,45 @@ class Controller:
             runtime["canary_ok"] = False
         return canary
 
+    def _reset_failure_counts(self, group, *, clear_health):
+        """按管理故障分类清理证据；旧配置不新增进程退出计数字段。"""
+        runtime = self.state["groups"][group["id"]]
+        if group.get("process_exit_detection"):
+            runtime["process_exit_counts"] = {}
+        if clear_health:
+            runtime["engine_failures"] = 0
+            runtime["health_failure_counts"] = {}
+
+    def _record_process_warnings(self, group, statuses):
+        """仅在进程规则诊断变化时记录，诊断本身不授权重启。"""
+        runtime = self.state["groups"][group["id"]]
+        mismatches = {member: s.get("process_checks", []) for member, s in statuses.items()
+                      if s.get("process_ok") is False}
+        runtime["process_rule_warnings"] = mismatches
+        notice = json.dumps(mismatches, sort_keys=True)
+        if self.observation_notices.get(group["id"]) != notice:
+            if mismatches:
+                self.record("process_rule_mismatch", group=group["id"], members=mismatches,
+                                restart_authorized=False)
+                LOG.warning("group=%s served_models=%s topology=%s process_rule_mismatch members=%s; verifying inference independently",
+                            group["id"], json.dumps(self._group_log_fields(group)["served_models"], ensure_ascii=False),
+                            group["topology"], ",".join(mismatches))
+            self.observation_notices[group["id"]] = notice
+
+    def _propose_recovery(self, group, reason, statuses, health):
+        """记录 observe 模式的组级恢复建议，保留原范围判定和去重间隔。"""
+        runtime = self.state["groups"][group["id"]]
+        previous = runtime.get("last_recovery_proposal", {})
+        proposal = dict(reason=reason)
+        if group.get("partial_recovery"):
+            kind, blocked = select_scope(group, runtime, statuses, health, self.policy["failure_threshold"])
+            proposal.update(scope=kind, scope_blocked=blocked)
+        elif group["topology"] == "multi_node_mixed":
+            proposal["scope"] = "full"
+        if any(previous.get(k) != v for k, v in proposal.items()) or self.clock() - previous.get("time", 0) >= 60:
+            self.record("recovery_proposed", group=group["id"], **proposal)
+            runtime["last_recovery_proposal"] = dict(proposal, time=self.clock())
+
     def _tick_group(self, group):
         """完成一个恢复组的观测与决策，状态和故障证据始终按组保存。"""
         runtime = self.state["groups"][group["id"]]
@@ -408,11 +447,7 @@ class Controller:
         issue = management_issue(statuses)
         if issue is not None:
             phase, reason, clear_counts = issue
-            if group.get("process_exit_detection"):
-                runtime["process_exit_counts"] = {}
-            if clear_counts:
-                runtime["engine_failures"] = 0
-                runtime["health_failure_counts"] = {}
+            self._reset_failure_counts(group, clear_health=clear_counts)
             self.transition(group, phase, reason)
             return
         critical, fault_probe_known = self.critical_fault(group)
@@ -420,27 +455,13 @@ class Controller:
             self.transition(group, "QUARANTINED", "configured_critical_fault")
             return
         if not fault_probe_known:
-            runtime["engine_failures"] = 0
-            runtime["health_failure_counts"] = {}
-            if group.get("process_exit_detection"):
-                runtime["process_exit_counts"] = {}
+            self._reset_failure_counts(group, clear_health=True)
             self.transition(group, "UNKNOWN", "critical_fault_probe_unavailable")
             return
         # 命令行匹配不到不证明进程死亡（进程可改名）；只认已确认的容器停止。
         # 规则结果作为诊断保留，业务就绪仍须完整健康及真实生成证据。
         hard_failure = any(s.get("state") == "stopped" for s in statuses.values())
-        mismatches = {member: s.get("process_checks", []) for member, s in statuses.items()
-                      if s.get("process_ok") is False}
-        runtime["process_rule_warnings"] = mismatches
-        notice = json.dumps(mismatches, sort_keys=True)
-        if self.observation_notices.get(group["id"]) != notice:
-            if mismatches:
-                self.record("process_rule_mismatch", group=group["id"], members=mismatches,
-                                restart_authorized=False)
-                LOG.warning("group=%s served_models=%s topology=%s process_rule_mismatch members=%s; verifying inference independently",
-                            group["id"], json.dumps(self._group_log_fields(group)["served_models"], ensure_ascii=False),
-                            group["topology"], ",".join(mismatches))
-            self.observation_notices[group["id"]] = notice
+        self._record_process_warnings(group, statuses)
         health = self.probes(group["health_checks"])
         health_ok = all(p.state == "pass" for p in health)
         # 只累计显式授权的同一端点连续错误，Proxy/容量503默认只使就绪失败。
@@ -494,16 +515,7 @@ class Controller:
             reason = "confirmed_engine_process_exit"
         if reason is not None:
             if self.config["mode"] == "observe":
-                previous = runtime.get("last_recovery_proposal", {})
-                proposal = dict(reason=reason)
-                if group.get("partial_recovery"):
-                    kind, blocked = select_scope(group, runtime, statuses, health, self.policy["failure_threshold"])
-                    proposal.update(scope=kind, scope_blocked=blocked)
-                elif group["topology"] == "multi_node_mixed":
-                    proposal["scope"] = "full"
-                if any(previous.get(k) != v for k, v in proposal.items()) or self.clock() - previous.get("time", 0) >= 60:
-                    self.record("recovery_proposed", group=group["id"], **proposal)
-                    runtime["last_recovery_proposal"] = dict(proposal, time=self.clock())
+                self._propose_recovery(group, reason, statuses, health)
                 self.save()
             else:
                 self.recover(group, reason)
