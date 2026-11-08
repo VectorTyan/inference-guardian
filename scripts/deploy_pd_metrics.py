@@ -8,11 +8,11 @@ import secrets
 import subprocess
 import tempfile
 import time
-from urllib.error import URLError
-from urllib.request import ProxyHandler, build_opener
+from urllib.error import HTTPError, URLError
+from urllib.request import ProxyHandler, Request, build_opener
 
 from generate_pd_metrics import ROOT, RELAY_MODULE, make_targets
-from inference_guardian.observability.pd_metrics_relay import HEALTH_BODY, HEALTH_PATH
+from inference_guardian.observability.pd_metrics_relay import HEALTH_BODY, HEALTH_PATH, METRICS_PATH
 from inference_guardian.storage import FileLock, atomic_json
 
 SERVICE = "inference-guardian-pd-metrics.service"
@@ -45,13 +45,24 @@ WantedBy=multi-user.target
 """.format(directory=directory, python=python, module=RELAY_MODULE, port=port).encode()
 
 
-def wait_relay(port):
+def wait_relay(port, token_file):
+    origin = "http://127.0.0.1:{}".format(port)
+    token = token_file.read_text(encoding="ascii").strip()
+    request = Request(origin + METRICS_PATH + "?target=__guardian_readiness__",
+                      headers={"Authorization": "Bearer " + token})
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         try:
-            with LOCAL_HTTP.open("http://127.0.0.1:{}{}".format(port, HEALTH_PATH), timeout=2) as response:
-                if response.read(len(HEALTH_BODY) + 1) == HEALTH_BODY:
-                    return
+            with LOCAL_HTTP.open(origin + HEALTH_PATH, timeout=2) as response:
+                ready = response.read(len(HEALTH_BODY) + 1) == HEALTH_BODY
+            if ready:
+                try:
+                    with LOCAL_HTTP.open(request, timeout=2):
+                        pass
+                except HTTPError as error:
+                    with error:
+                        if error.code == 404:
+                            return
         except (OSError, URLError):
             pass
         time.sleep(0.5)
@@ -135,7 +146,7 @@ def deploy(args):
                 run("systemctl", "daemon-reload")
                 started = True
                 run("systemctl", "start", SERVICE)
-            wait_relay(args.relay_port)
+            wait_relay(args.relay_port, token)
             run("bash", entry, "guardian-metrics", "--p0-ip", p0_ip,
                 "--targets", discovery, "--token-file", token, timeout=180)
         except BaseException:
