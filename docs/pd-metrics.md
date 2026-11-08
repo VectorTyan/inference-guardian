@@ -46,6 +46,24 @@ python3 -B scripts/generate_pd_metrics.py \
 
 ## 接入 Prometheus
 
+### 复用 P0 已安装的 BMS Prometheus
+
+在 P0 安装含 `deploy.sh guardian-metrics` 的 `npu-metrics-monitor` 代码后，从 Guardian 源码目录运行以下命令。转发使用 Linux systemd 的 `LoadCredential`，并需要独立 Python 环境预装 Uvicorn 和 HTTPX。
+
+```bash
+sudo python3 -B scripts/deploy_pd_metrics.py \
+  --manifest /path/to/source-manifest.json \
+  --inventory /path/to/pd-server-inventory.json \
+  --relay-port 19191 \
+  --relay-python /opt/guardian-metrics-venv/bin/python
+```
+
+命令校验当前主机是清单中的 P0，创建独立 systemd 服务并绑定 `127.0.0.1`。随后调用本机 `npu-metrics-monitor` 的专用入口，向已运行的 host 网络 Prometheus 发布发现文件与独立采集令牌，使用现有容器内的 `promtool` 校验。首次接入经 `SIGHUP` 热加载并核对进程启动时间与加载状态。保留现场 AOM 的 Remote Write、写入规则和访问凭据。业务 Proxy、自愈组件和硬件采集容器独立运行。
+
+更新拓扑时用新清单重跑相同命令。固定 job 已加载时，更新目标文件即可。当前每台 P0 支持一个联动部署，端口与服务目录需保持一致。定制 `write_relabel_configs` 的站点需要确认 AOM 能收到新 job，验收查询为 `up{job="vllm-pd-via-proxy"}`。
+
+### 手工接入已有或独立 Prometheus
+
 1. 将 `targets.json` 放到 Prometheus 可读的 `/etc/prometheus/pd-metrics/targets.json`，采集凭据默认位于 `/etc/prometheus/secrets/pd-metrics.token`。可通过 `--target-file` 和 `--scrape-token-file` 调整。向现有 Prometheus 的 `scrape_configs` 合并生成的 job，核对现有 AOM 写入规则允许该 job。已有任务覆盖同一批引擎时，按部署切换为一个采集任务。
 2. 独立 Prometheus 可在生成时加 `--aom-url "$AOM_REMOTE_WRITE_URL" --aom-token-file /etc/prometheus/secrets/aom.token`，直接使用输出的 `prometheus.json` 作为配置。AOM Access Code 与 P0 采集令牌分别挂载。运行 `promtool check config`，再启动或重载 Prometheus。最后在目标 AOM 实例查询 `up{job="vllm-pd-via-proxy"}` 和实际引擎指标。
 

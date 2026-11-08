@@ -21,6 +21,7 @@ DEPLOY_FILES = ("deploy/Dockerfile", "deploy/site.example.json", "deploy/presets
 # 部署工具和现场文档显式列出；新增开发工具/规则/审查稿不会自动进入交付。
 SCRIPT_FILES = tuple("scripts/" + name + ".py" for name in (
     "check_mooncake_preflight", "check_vllm_status_readonly", "generate_external_profiles", "generate_pd_metrics",
+    "deploy_pd_metrics",
     "generate_node_tokens", "guardian_deploy", "guardian_schema", "mooncake_contract", "probe_config", "verify_guardian",
     "install_guardian", "guardian_rollout", "rollout_node", "rollout_state", "recommission", "guardian_inspect"))
 HOST_MODULES = ('__init__', 'deployment', 'components', 'rollout', 'node_release', 'release_state', 'inspection', 'verification', 'recommission', 'probe_config', 'mooncake_contract', 'profile_generation', 'preflight', 'tokens')

@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 METRICS_PATH = "/metrics/engine"
+HEALTH_PATH = "/healthz"
+HEALTH_BODY = b"guardian-pd-metrics\n"
 TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_IN_FLIGHT = 16
@@ -28,7 +30,10 @@ async def standalone_endpoint(scope, receive, send):
         await receive()
         await send({"type": "lifespan.shutdown.complete"})
     elif scope["type"] == "http":
-        await reply(send, 404)
+        if scope["method"] == "GET" and scope["path"] == HEALTH_PATH:
+            await reply(send, 200, HEALTH_BODY)
+        else:
+            await reply(send, 404)
     elif scope["type"] == "websocket":
         await send({"type": "websocket.close"})
 
@@ -44,8 +49,9 @@ class PdMetricsRelay:
         directory = Path(__file__).resolve().parent
         self.allowlist = Path(os.environ.get(
             "GUARDIAN_PD_METRICS_ALLOWLIST", str(directory / "pd-metrics-allowlist.json")))
+        credential_dir = Path(os.environ.get("CREDENTIALS_DIRECTORY", str(directory)))
         self.token_file = Path(os.environ.get(
-            "GUARDIAN_PD_METRICS_TOKEN_FILE", str(directory / "pd-metrics.token")))
+            "GUARDIAN_PD_METRICS_TOKEN_FILE", str(credential_dir / "pd-metrics.token")))
         self.slots = asyncio.Semaphore(MAX_IN_FLIGHT)
         self.client = None
 
