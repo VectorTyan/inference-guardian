@@ -21,4 +21,4 @@ python3 -B scripts/check_vllm_status_readonly.py --self-test
 
 [部署与打包](docs/operations.md) · [恢复与演练](docs/recovery.md) · [版本说明](docs/release-notes.md)
 
-P/D 部署可[复用 P0 端口采集引擎指标并写入 AOM](docs/pd-metrics.md)。
+P/D 部署可[通过 P0 独立转发引擎指标并写入 AOM](docs/pd-metrics.md)。

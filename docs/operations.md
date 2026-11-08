@@ -59,6 +59,10 @@ python3 -B packages/install_guardian.py --manifest config/source-manifest.json -
 
 输出 `passed=true` 后查看验收报告，核对模型、节点、健康检查和真实生成。`--ssh-password` 在交互终端读取共用 SSH 密码。站点配置与私钥在部署端保管。
 
+`observe` 安装以接管已运行模型为前提。它安装或更新 Guardian 的 Controller/Agent，读取模型状态并发起健康及生成探针。标准 P/D 配置关闭 Guardian 的可选 Gateway，站点自定义配置接管既有 Proxy 时也应设置 `gateway.enabled=false`。完成 `observe` 验收后，可另择窗口启用 `recovery`，该模式会在确认故障时执行恢复动作。
+
+[P/D 指标转发](pd-metrics.md)使用独立进程和监控端口，可先于或晚于 Controller/Agent 部署。停止独立转发服务时，现有业务 Proxy 和自愈组件各自继续运行。
+
 `upgrade --mode observe` 会归档记录、重新部署 Guardian 并重置恢复预算及代次。升级前关闭进行中的演练并对账未知动作。使用与目标部署相同的身份和现场输入；新的示例身份适用于独立验证环境。日常只读复查使用 verify。Controller 采用只读根文件系统、cap-drop ALL 和 no-new-privileges。符合条件的启动错误只允许一次 seccomp 兼容对比，通过固定版本自检后记录实际角色策略。
 
 [恢复演练](recovery.md)

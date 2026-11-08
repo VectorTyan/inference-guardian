@@ -58,12 +58,20 @@ def instance_layout(manifest, nodes, controller):
     return assigned
 
 
-def make_targets(manifest, inventory, controller=None, proxy_url=None):
+def make_targets(manifest, inventory, controller=None, proxy_url=None, relay_port=None):
     if not isinstance(manifest, dict) or is_mixed(manifest):
         raise ValueError("PD source manifest required")
-    if manifest.get("version") not in (5, 6):
-        raise ValueError("PD metrics requires a v5 or v6 manifest; legacy manifests pin the Proxy source hash")
+    if relay_port is None and manifest.get("version") not in (5, 6):
+        raise ValueError("same-port mode requires a v5 or v6 manifest; legacy manifests pin the Proxy source hash")
     nodes = validate_manifest(manifest)
+    p0 = nodes["p0"]
+    scrape_port = manifest["external_port"]
+    if relay_port is not None:
+        occupied = {scrape_port, p0["rpc_port"], manifest["mooncake"]["listen_port"], 19090}
+        occupied.update(range(p0["api_port"], p0["api_port"] + p0["local_dp"]))
+        if type(relay_port) is not int or not 1024 <= relay_port <= 65535 or relay_port in occupied:
+            raise ValueError("relay port must be an unused unprivileged port on P0")
+        scrape_port = relay_port
     instances = instance_layout(manifest, nodes, controller)
     cluster = identifier(inventory["cluster"], "cluster")
     deployment = identifier(inventory.get("deployment", manifest_group_id(manifest)), "deployment")
@@ -71,14 +79,16 @@ def make_targets(manifest, inventory, controller=None, proxy_url=None):
     if set(servers) != set(nodes):
         raise ValueError("inventory servers must match the source manifest member IDs")
 
-    p0_ip = ip_address(nodes["p0"]["host"])
+    p0_ip = ip_address(p0["host"])
     p0_host = "[" + str(p0_ip) + "]" if p0_ip.version == 6 else str(p0_ip)
-    listener = urlsplit(proxy_url or "http://{}:{}".format(p0_host, manifest["external_port"]))
+    listener = urlsplit(proxy_url or "http://{}:{}".format(p0_host, scrape_port))
     if (listener.scheme not in ("http", "https") or not listener.hostname or not listener.port
             or listener.username is not None or listener.password is not None
             or listener.path not in ("", "/") or listener.query or listener.fragment
             or any(char.isspace() for char in listener.netloc)):
-        raise ValueError("proxy URL requires http(s), host and port")
+        raise ValueError("scrape URL requires http(s), host and port")
+    if relay_port is not None and listener.hostname == str(p0_ip) and listener.port in occupied:
+        raise ValueError("standalone scrape URL must not use an existing P0 service port")
 
     routes, targets = {}, []
     server_ids = set()
@@ -179,8 +189,11 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--inventory", type=Path, required=True)
     parser.add_argument("--controller", type=Path, help="Use explicit instance IDs from this Controller configuration")
-    parser.add_argument("--proxy-source", type=Path, help="Also emit a metrics-enabled copy of the original P0 script")
-    parser.add_argument("--proxy-url", help="Override the scrape URL with an existing trusted HTTP(S) ingress")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--relay-port", type=int, help="Emit an independent relay for this P0 monitoring port")
+    mode.add_argument("--proxy-source", type=Path, help="Emit a same-port copy of the original P0 Proxy script")
+    parser.add_argument("--scrape-url", "--proxy-url", dest="proxy_url",
+                        help="Override the scrape URL with an existing trusted HTTP(S) ingress")
     parser.add_argument("--target-file", default="/etc/prometheus/pd-metrics/targets.json")
     parser.add_argument("--scrape-token-file", default="/etc/prometheus/secrets/pd-metrics.token")
     parser.add_argument("--aom-url", help="Optional AOM Remote Write URL for standalone Prometheus")
@@ -191,22 +204,24 @@ def main():
         manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
         inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
         controller = json.loads(args.controller.read_text(encoding="utf-8")) if args.controller else None
-        routes, targets = make_targets(manifest, inventory, controller, args.proxy_url)
+        routes, targets = make_targets(manifest, inventory, controller, args.proxy_url, args.relay_port)
         config = prometheus_config(args.target_file, args.scrape_token_file, args.aom_url, args.aom_token_file)
         if args.proxy_source:
             if (not args.proxy_source.stem.isidentifier() or args.proxy_source.suffix != ".py"
                     or args.proxy_source.stem == RELAY_MODULE):
                 raise ValueError("Proxy source must have an importable Python module filename")
             adapted = adapt_proxy(args.proxy_source.read_text(encoding="utf-8"))
+        if args.proxy_source or args.relay_port is not None:
             relay = (ROOT / "src/inference_guardian/observability/pd_metrics_relay.py").read_bytes()
         args.output_dir.mkdir(parents=True)
-        proxy_dir = args.output_dir / "p0"
-        atomic_json(proxy_dir / "pd-metrics-allowlist.json", routes)
+        p0_dir = args.output_dir / "p0"
+        atomic_json(p0_dir / "pd-metrics-allowlist.json", routes)
         atomic_json(args.output_dir / "targets.json", targets)
         atomic_json(args.output_dir / "prometheus.json", config)
+        if args.proxy_source or args.relay_port is not None:
+            (p0_dir / (RELAY_MODULE + ".py")).write_bytes(relay)
         if args.proxy_source:
-            (proxy_dir / (RELAY_MODULE + ".py")).write_bytes(relay)
-            (proxy_dir / args.proxy_source.name).write_text(adapted, encoding="utf-8")
+            (p0_dir / args.proxy_source.name).write_text(adapted, encoding="utf-8")
     except (OSError, ValueError, KeyError, TypeError, SyntaxError) as error:
         parser.error(str(error))
     print("Generated {} engine targets in {}".format(len(targets), args.output_dir))

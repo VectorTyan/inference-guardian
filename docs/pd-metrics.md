@@ -1,10 +1,12 @@
 # P/D 引擎指标通过 P0 上报 AOM
 
-Guardian 从已审阅的四机 P/D 部署清单生成 P0 转发允许列表和 Prometheus 文件发现目标。Prometheus 访问 P0 原有端口的 `GET /metrics/engine?target=<id>`，P0 将每次抓取转发给一个引擎的 `/metrics`。部署拓扑和资产映射在管理节点合并。单个引擎失败时，对应目标产生 `up=0`。
+Guardian 从已审阅的四机 P/D 部署清单生成 P0 转发允许列表和 Prometheus 文件发现目标。Prometheus 请求 `GET /metrics/engine?target=<id>`，转发服务将每次抓取转发给一个引擎的 `/metrics`。单个引擎失败时，对应目标产生 `up=0`。
+
+指标转发可在自愈 Controller/Agent 安装前或安装后独立部署。对正在运行的推理服务，使用 P0 的独立监控端口。转发进程只读取配置并请求引擎指标，启停由独立的进程管理单元负责。启用自愈时，单独按 [Guardian 部署与验收流程](operations.md) 先进入 `observe`，再按现场安排启用 `recovery`。
 
 ## 生成采集文件
 
-使用与现场部署一致的 v5 或 v6 `source-manifest.json` 和未适配的 Proxy Python 源码。v3/v4 清单固定了 Proxy 源文件摘要，应先通过 Guardian 的既有升级流程迁移。服务器资产文件示例适用于公开四机示例，现场将 `server_id` 替换为资产系统中的稳定 ID。
+使用与现场部署一致的 `source-manifest.json`。服务器资产文件示例适用于公开四机示例，现场将 `server_id` 替换为资产系统中的稳定 ID。
 
 ```json
 {
@@ -23,20 +25,35 @@ Guardian 从已审阅的四机 P/D 部署清单生成 P0 转发允许列表和 P
 python3 -B scripts/generate_pd_metrics.py \
   --manifest examples/vllm-ascend/example-pd-dp4tp4/source-manifest.json \
   --inventory /path/to/pd-server-inventory.json \
-  --proxy-source /path/to/load_balance_proxy_server_example.py \
+  --relay-port 19191 \
   --output-dir local/pd-metrics-v1
 ```
 
-公开 DP4/TP4 示例产出 4 个 Prefill 端点和 8 个 Decode 端点。引擎端口与 Guardian 健康探针遵循同一规则，由每个成员的 `api_port` 加本地 DP 偏移得到。Proxy 抓取地址默认使用清单中 P0 的地址和 `external_port`。已有监控专用 HTTPS 入口时，使用 `--proxy-url https://p0-monitor.example:443` 指向该入口。
+公开 DP4/TP4 示例产出 4 个 Prefill 端点和 8 个 Decode 端点。引擎端口由各成员的 `api_port` 加本地 DP 偏移得到。Prometheus 默认访问清单中的 P0 地址与 `--relay-port`。已有监控专用 HTTPS 入口时，可用 `--scrape-url https://p0-monitor.example:443` 让 Prometheus 访问该入口。
 
-## 启用 P0 和 Prometheus
+## 独立启动 P0 转发服务
 
-1. 将输出目录 `p0/` 下的同名适配版 Proxy 脚本、`guardian_pd_metrics_relay.py` 和 `pd-metrics-allowlist.json` 放入同一个受控目录，确保 Proxy 容器可读。使用现场现有的 Proxy 启动命令、参数和监听端口，从该目录启动适配后的同名脚本。启用时需要在维护窗口重启 Proxy。
-2. 在同一目录放置仅 Proxy 运行用户可读的 `pd-metrics.token`，Prometheus 挂载相同内容。可用 `GUARDIAN_PD_METRICS_ALLOWLIST` 和 `GUARDIAN_PD_METRICS_TOKEN_FILE` 为 P0 指定容器内路径。将指标路由限制在可信监控网络内。经过共享或非可信网络时使用受控 HTTPS 入口并校验 TLS，网关业务路由应仅发布业务路径。
-3. 将 `targets.json` 放到 Prometheus 可读的 `/etc/prometheus/pd-metrics/targets.json`，采集凭据默认位于 `/etc/prometheus/secrets/pd-metrics.token`。可通过 `--target-file` 和 `--scrape-token-file` 调整。向现有 Prometheus 的 `scrape_configs` 合并生成的 job，核对现有 AOM 写入规则允许该 job。已有直采任务覆盖同一批引擎时，按部署切换为一个采集任务。
-4. 独立 Prometheus 可在生成时加 `--aom-url "$AOM_REMOTE_WRITE_URL" --aom-token-file /etc/prometheus/secrets/aom.token`，直接使用输出的 `prometheus.json` 作为配置。AOM Access Code 与 P0 采集令牌分别挂载。运行 `promtool check config`，再启动或重载 Prometheus。最后在目标 AOM 实例查询 `up{job="vllm-pd-via-proxy"}` 和实际引擎指标。
+1. 在 P0 上，将输出目录的 `p0/` 内容复制到单独的指标服务目录，例如 `/opt/guardian-pd-metrics`。在该目录放置仅转发用户可读的 `pd-metrics.token`。Prometheus 挂载相同内容。使用独立 Python 环境，其中安装 Uvicorn 和 HTTPX。
+2. 确认监控端口空闲，使用非特权账号启动独立进程。将 `$P0_MONITOR_IP` 替换为 Prometheus 可达的 P0 监控地址。可将命令登记到单独的 systemd 服务，使用独立的 CPU、内存限额。转发用户只需要读取该目录和访问目标引擎网络。
 
-维护端口或资产映射时，重新生成到新目录。先在 P0 侧原子替换允许列表，再在 Prometheus 侧原子替换发现文件。Proxy 在每次抓取时读取本地配置，文件发现负责目标变更。回退时还原已验收的文件，退出该采集模式时切回原 Proxy 脚本和旧抓取任务。
+```bash
+/opt/guardian-pd-metrics/venv/bin/python -m uvicorn \
+  guardian_pd_metrics_relay:create_app --factory --lifespan on \
+  --app-dir /opt/guardian-pd-metrics --host "$P0_MONITOR_IP" --port 19191
+```
+
+绑定地址与拓扑中的 P0 地址不同时，用 `--scrape-url` 指定可达地址。将监控端口限制在可信网络，跨共享网络时使用 HTTPS 并校验证书。可用 `GUARDIAN_PD_METRICS_ALLOWLIST` 和 `GUARDIAN_PD_METRICS_TOKEN_FILE` 覆盖文件路径。独立模式的启停和回退均无需重启原 Proxy。
+
+## 接入 Prometheus
+
+1. 将 `targets.json` 放到 Prometheus 可读的 `/etc/prometheus/pd-metrics/targets.json`，采集凭据默认位于 `/etc/prometheus/secrets/pd-metrics.token`。可通过 `--target-file` 和 `--scrape-token-file` 调整。向现有 Prometheus 的 `scrape_configs` 合并生成的 job，核对现有 AOM 写入规则允许该 job。已有任务覆盖同一批引擎时，按部署切换为一个采集任务。
+2. 独立 Prometheus 可在生成时加 `--aom-url "$AOM_REMOTE_WRITE_URL" --aom-token-file /etc/prometheus/secrets/aom.token`，直接使用输出的 `prometheus.json` 作为配置。AOM Access Code 与 P0 采集令牌分别挂载。运行 `promtool check config`，再启动或重载 Prometheus。最后在目标 AOM 实例查询 `up{job="vllm-pd-via-proxy"}` 和实际引擎指标。
+
+维护资产或引擎端口映射时，重新生成到新目录。先在 P0 侧原子替换允许列表，再在 Prometheus 侧原子替换发现文件。转发进程在每次抓取时读取本地配置。回退时还原已验收的文件，退出独立模式时停用该采集任务并停止转发进程。
+
+## 可选的 Proxy 同端口模式
+
+把生成命令中的 `--relay-port` 替换为 `--proxy-source /path/to/load_balance_proxy_server_example.py`。此模式要求 v5/v6 清单，生成的采集地址默认是原 Proxy 业务端口。将生成的适配版 Proxy 脚本和同目录的转发模块、允许列表及令牌放到原启动入口可读的位置。在维护窗口重启 Proxy 加载适配代码，切回原脚本时也需要重启。若现场已有独立前置代理并支持热加载路由，可由前置代理将指标路径分流到独立转发服务，原业务 Proxy 可继续运行。
 
 ## 标签和故障判定
 
@@ -51,6 +68,6 @@ python3 -B scripts/generate_pd_metrics.py \
 
 一个逻辑实例可包含多个成员。`role="decode", inference_instance="decode-01", member_id="d0"` 描述三个独立维度。采集配置可以表达同角色多实例，当前生成入口使用 Guardian 已支持的四机 P/D 清单格式。
 
-P0 拒绝未授权请求和清单外目标。每个 worker 使用独立的监控连接池，最多并发 16 路转发。单次后端请求限时 5 秒，响应上限 4 MiB。后端 HTTP 错误和连接失败返回 502，超时返回 504。单目标故障可按 `metrics_target_id` 定位。若所有目标同时失败，检查 P0 本身和监控链路。
+P0 转发服务拒绝未授权请求和清单外目标。每个 worker 使用独立的监控连接池，最多并发 16 路转发。单次后端请求限时 5 秒，响应上限 4 MiB。后端 HTTP 错误和连接失败返回 502，超时返回 504。单目标故障可按 `metrics_target_id` 定位。若所有目标同时失败，检查转发服务和监控链路。
 
 在隔离环境停止一个 Decode 引擎的指标端点。等待两个抓取周期，核对该目标变为 `up=0`，其他目标仍为 `up=1` 且引擎样本持续更新。恢复端点后核对目标自动回到 `up=1`。现场验收同时观察推理延迟与 AOM 样本到达时间。

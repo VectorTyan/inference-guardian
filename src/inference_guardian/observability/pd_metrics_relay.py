@@ -1,4 +1,4 @@
-"""Opt-in ASGI route installed on the existing P0 Proxy listener."""
+"""P/D metrics relay for a dedicated listener or the P0 Proxy listener."""
 import asyncio
 import hmac
 from ipaddress import ip_address
@@ -19,6 +19,23 @@ async def reply(send, status, body=b"", content_type=b"text/plain; charset=utf-8
         (b"cache-control", b"no-store"),
     ]})
     await send({"type": "http.response.body", "body": body})
+
+
+async def standalone_endpoint(scope, receive, send):
+    if scope["type"] == "lifespan":
+        await receive()
+        await send({"type": "lifespan.startup.complete"})
+        await receive()
+        await send({"type": "lifespan.shutdown.complete"})
+    elif scope["type"] == "http":
+        await reply(send, 404)
+    elif scope["type"] == "websocket":
+        await send({"type": "websocket.close"})
+
+
+def create_app():
+    """Standalone Uvicorn factory. It has no inference or Guardian lifecycle routes."""
+    return PdMetricsRelay(standalone_endpoint)
 
 
 class PdMetricsRelay:
@@ -82,7 +99,7 @@ class PdMetricsRelay:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
-            # The Proxy image provides HTTPX. Use a separate pool per worker for metrics.
+            # The relay environment provides HTTPX. Use a separate pool per worker for metrics.
             import httpx
 
             limits = httpx.Limits(max_connections=MAX_IN_FLIGHT, max_keepalive_connections=MAX_IN_FLIGHT)
