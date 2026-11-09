@@ -2,7 +2,8 @@
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import shutil
 import tempfile
 
@@ -30,6 +31,42 @@ def safe_directory(path, root=INSTALL_ROOT):
 def digest(value):
     """对配置对象规范序列化后计算SHA-256，不包含文件中未进入对象的注释或格式。"""
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def existing_release(checksum, root=INSTALL_ROOT):
+    """原压缩包可清理；从已发布目录核验原清单和源码，供旧事务只读验收使用。"""
+    if not re.fullmatch('[0-9a-f]{64}', checksum or ''):
+        raise ValueError('invalid original release checksum')
+    candidates = list((root / 'releases').glob('*-' + checksum[:16]))
+    if len(candidates) != 1:
+        raise ValueError('original extracted release is missing or ambiguous; preserve the transaction')
+    source = safe_directory(candidates[0], root)
+    manifest = json.loads(safe_directory(source / 'MANIFEST.json', root).read_text(encoding='utf-8'))
+    version = manifest.get('version', '')
+    if (not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version)
+            or source.name != version + '-' + checksum[:16]
+            or manifest.get('release_name') != 'inference-guardian-source-' + version + '.tar.gz'):
+        raise ValueError('original release metadata differs from its directory')
+    listed = set()
+    for item in manifest['files']:
+        name = item['path']
+        relative = PurePosixPath(name)
+        if (relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name
+                or name in listed or name == 'MANIFEST.json'):
+            raise ValueError('invalid original release file list')
+        path = safe_directory(source / name, source)
+        if not path.is_file() or path.stat().st_size != item['bytes'] or file_hash(path) != item['sha256']:
+            raise ValueError('original release file differs: ' + name)
+        listed.add(name)
+    if not {'pyproject.toml', 'scripts/rollout_node.py', 'src/inference_guardian/__init__.py'} <= listed:
+        raise ValueError('original release is incomplete')
+    allowed = listed | {parent.as_posix() for name in listed for parent in PurePosixPath(name).parents}
+    for folder in ('src', 'scripts'):
+        for path in (source / folder).rglob('*'):
+            relative = path.relative_to(source)
+            if path.is_symlink() or ('__pycache__' not in relative.parts and relative.as_posix() not in allowed):
+                raise ValueError('unexpected original release source: ' + relative.as_posix())
+    return source
 
 
 def private_dir(path):

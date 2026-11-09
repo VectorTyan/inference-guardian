@@ -36,18 +36,18 @@ python3 -B packages/install_guardian.py upgrade \
 
 ### 续接旧版本未完成的升级收尾
 
-若升级停在 `p0-redeploy-finish`，其节点回执和协调器回执仍为 `in_progress` 或 `unconfirmed`，先保留原事务、原源码包和 SHA256SUMS。模型恢复健康后，将修复版三份交付物放入 packages，使用补丁工具完成原事务。下面以原请求为 recovery 为例，mode 必须与原请求一致。
+若升级停在 `p0-redeploy-finish`，保留现存 releases 发布目录、冻结配置、运行状态和事务回执即可，旧源码压缩包可以缺失。模型恢复健康后，将新版三份交付物放入 packages，直接执行原来的 upgrade 命令：
 
 ```bash
 cd /data/scripts/inference-guardian
-python3 -B packages/install_guardian.py upgrade --resume-finish \
-  --archive packages/inference-guardian-source-0.31.1.tar.gz \
+python3 -B packages/install_guardian.py upgrade \
+  --archive packages/inference-guardian-source-0.31.2.tar.gz \
   --config config/site.json --ssh-password --mode recovery
 ```
 
-此命令核验补丁包后，按 `operations/redeploy.json` 的摘要查找原源码包，使用原冻结配置和节点请求。不会运行构建、停止、重置、归档、接管和启动阶段；仅对账收尾、完成健康验收和原 current 指针发布。验收报告版本仍为原部署版本，运行镜像也仍为原版本。普通升级到补丁镜像是独立的后续操作。
+程序按原事务记录定位现存发布目录，核验 MANIFEST 文件清单，并沿用原冻结配置、请求及回执对账收尾。确认旧事务完成后，在同一命令内继续部署新包，最终验收版本为新版本。原阶段不重放；新的升级轮次按既有规则部署 Guardian、复用 Token、归档日志和旧状态并重置恢复状态。现场配置文件不覆盖，衔接过程中使用原冻结配置。原事务按原请求模式完成，新部署采用本次指定的模式。
 
-重试继续使用同一命令。原进程仍持有集群、节点或部署锁时会立即停止；回执的 in_progress 本身不代表进程还在。实际 Controller 已运行并加载目标配置时不重复 stop/start。组件停止、配置尚未加载、模型动作未知、审计损坏或停止/启动结果无法确认时仍会阻断，须先核对原回执、部署审计和实际 Docker 状态。不要删除 operations、手改 complete、放宽容器 PIN 或替换原归档来绕过保护。完成条件为验收报告 passed=true、redeploy.json 为 complete，且 Controller 内部模式符合原请求（recovery 对应 auto）。
+终端中断后重跑同一命令即可，包括旧事务已完成而新部署尚未开始的情况。原进程仍持有锁、原发布目录缺失或损坏、模型动作未知、组件停止或模式结果无法确认时会明确停止，不删除回执或重放未知操作。不要清空 operations 或手改 complete。成功条件为最后一份报告 version=0.31.2、passed=true，redeploy.json 为 complete，Controller 模式符合本次请求（recovery 对应内部 auto）。旧 --resume-finish 参数保留解析兼容，执行流程也统一为完整升级，不再需要单独使用。
 
 ### 从外部目录打包
 

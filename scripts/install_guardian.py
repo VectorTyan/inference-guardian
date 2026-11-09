@@ -155,7 +155,7 @@ def main(argv=None):
     parser.add_argument('--service', choices=('agent','controller'), default='agent')
     parser.add_argument('--lines', type=int, default=200)
     parser.add_argument('--mode', choices=('observe', 'recovery'))
-    parser.add_argument('--resume-finish', action='store_true', help='Upgrade only: reconcile the original unfinished redeployment using this package as a repair tool')
+    parser.add_argument('--resume-finish', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--fault', choices=('process-exit', 'container-stop'))
     parser.add_argument('--wait-seconds', type=int, default=0, help='Exercise report polling only, 0..7200 seconds')
     parser.add_argument('--close-exercise', action='store_true', help='Close a confirmed but failed exercise after healthy manual restoration; never resolves unknown injection')
@@ -209,19 +209,6 @@ def main(argv=None):
         checksum = archive_checksum(args.archive)
         source, manifest = extract_release(args.archive, checksum)
         sys.path[:0] = [str(source / 'scripts'), str(source / 'src')]
-        if args.resume_finish:
-            # 加载补丁的宿主工具，但所有变更和验收仍绑定原归档、原镜像与原请求。
-            pending_path = safe_directory(INSTALL_ROOT / 'operations/redeploy.json')
-            pending = json.loads(pending_path.read_text(encoding='utf-8'))
-            expected = pending.get('archive_sha256', '')
-            if pending.get('status') != 'in_progress' or not re.fullmatch('[0-9a-f]{64}', expected):
-                raise ValueError('no unfinished redeployment to finish')
-            originals = [path for path in args.package_dir.glob('inference-guardian-source-*.tar.gz')
-                         if not path.is_symlink() and path.is_file() and file_hash(path) == expected]
-            if len(originals) != 1:
-                raise ValueError('retain the original source archive in packages to resume finish; do not replace its bytes')
-            args.archive, checksum = originals[0], expected
-            source, manifest = extract_release(args.archive, checksum)
         if args.manifest is not None:
             from guardian_ops.site import site_for_manifest
             config = site_for_manifest(args.manifest, args.config)
@@ -240,7 +227,7 @@ def main(argv=None):
             return inspect_run(args.action, source, config, args.node, args.service, args.lines, **auth)
         from guardian_rollout import run
         options = dict(plan_file=args.plan_file.resolve()) if args.plan_file else {}
-        return run('resume-finish' if args.resume_finish else args.action, args.archive.resolve(), checksum,
+        return run(args.action, args.archive.resolve(), checksum,
                    source, config, args.mode, **options, **auth)
     except Exception as exc:
         print('Deployment stopped: ' + str(exc), file=sys.stderr)

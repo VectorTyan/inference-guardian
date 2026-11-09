@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from .deployment import GuardianDeployment
-from .release_files import private_dir, digest
+from .release_files import private_dir, digest, existing_release
 from .transport import command, Transport
 from .image import prepare_image
 from .profile_generation import generate, check_profile, upgrade_profile, compile_service_manifest
@@ -287,9 +287,10 @@ class Rollout:
         self.work = INSTALL_ROOT / 'operations' / self.operation
         self.journal = Receipts(self.work / 'coordinator', self.operation)
         NodeRelease(self.request('p0')).host()
+        continuation = {'continuation': self.continuation} if getattr(self, 'continuation', None) else {}
         if not plan:
             atomic_json(marker, dict(operation=self.operation, inputs=self.input_digest, status='in_progress',
-                                     profile=str(self.profile), archive_sha256=self.checksum))
+                                     profile=str(self.profile), archive_sha256=self.checksum, **continuation))
         self.stage()
         if plan:
             survey = self.collect('redeploy-survey')
@@ -319,21 +320,24 @@ class Rollout:
         self.journal.execute('pointers', self.pointers)
         atomic_json(marker, dict(operation=self.operation, inputs=self.input_digest, status='complete',
                                  completed_at=utc8_timestamp(), mode=self.site['mode'],
-                                 profile=str(self.profile), archive_sha256=self.checksum))
+                                 profile=str(self.profile), archive_sha256=self.checksum, **continuation))
         return result
 
     @classmethod
     def resume_finish(cls, archive, checksum, source, site, *, ssh_password=None):
-        """补丁工具只完成原发布收尾；不生成新输入、不构建镜像、不重放发布阶段。"""
+        """新包内部对账原发布收尾；原压缩包和原安装入口均不参与。"""
         marker_path = INSTALL_ROOT / 'operations/redeploy.json'
         marker = read_json(marker_path, {})
         operation = marker.get('operation', '')
-        if (marker.get('status') != 'in_progress' or not re.fullmatch('[0-9a-f]{20}', operation)
-                or marker.get('archive_sha256') != checksum):
+        if marker.get('status') != 'in_progress' or not re.fullmatch('[0-9a-f]{20}', operation):
             raise ValueError('no matching unfinished redeployment to finish')
+        checksum = marker.get('archive_sha256')
+        source = existing_release(checksum, INSTALL_ROOT)
         result = cls.__new__(cls)
         result.operation, result.checksum, result.source = operation, checksum, source
-        result.archive, result.version, result.site = archive, read_source_version(source), site
+        result.archive, result.version, result.site = archive, read_source_version(source), dict(site)
+        if source.name != result.version + '-' + checksum[:16]:
+            raise ValueError('original source version differs from its release metadata')
         result.work = safe_directory(INSTALL_ROOT / 'operations' / operation, INSTALL_ROOT)
         result.journal = Receipts(result.work / 'coordinator', operation)
         result.profile = safe_directory(Path(marker['profile']), INSTALL_ROOT)
@@ -356,8 +360,8 @@ class Rollout:
                     continue
                 if (request.get('operation') != operation or request.get('node') != node
                         or request.get('archive_sha256') != checksum or request.get('profile') != str(result.profile)
-                        or request.get('mode') != site['mode']):
-                    raise ValueError('original finish request differs; retain its mode and frozen inputs')
+                        or request.get('mode') not in {'observe', 'recovery'}):
+                    raise ValueError('original finish request differs; retain its frozen inputs')
                 requests[digest(request)] = request
             if len(requests) != 1:
                 raise ValueError('one original release request required for ' + node)
@@ -365,8 +369,10 @@ class Rollout:
             for step in ('prepare', 'stop', 'reset', 'records', 'adopt', 'start'):
                 if result.journal.get(node + '-redeploy-' + step).get('status') != 'complete':
                     raise ValueError('only a fully started deployment may resume finish: ' + node + '-' + step)
-        if not result.journal.get('p0-redeploy-finish'):
-            raise ValueError('original p0 finish intent is required')
+        modes = {request['mode'] for request in result.finish_requests.values()}
+        if len(modes) != 1:
+            raise ValueError('original node requests disagree on mode')
+        result.site['mode'] = modes.pop()
         result.transport = Transport(site, {n['id']: n['host'] for n in manifest['nodes']},
                                      **({'password': ssh_password} if ssh_password is not None else {}))
         NodeRelease(result.request('p0')).host()
@@ -375,14 +381,15 @@ class Rollout:
             if (receipt.get('identity') != digest(result.request(node)) or receipt.get('status') != 'complete'):
                 raise ValueError('original node startup receipt is unconfirmed: ' + node)
         finish = result.call('p0', 'receipt-redeploy-finish')
-        if (finish.get('identity') != digest(result.request('p0')) or not finish
-                or (result.journal.get('p0-redeploy-finish')['status'] == 'complete'
-                    and finish.get('status') != 'complete')):
+        coordinator_finish = result.journal.get('p0-redeploy-finish')
+        if (bool(finish) != bool(coordinator_finish)
+                or (finish and finish.get('identity') != digest(result.request('p0')))
+                or (coordinator_finish.get('status') == 'complete' and finish.get('status') != 'complete')):
             raise ValueError('original node finish receipt is unconfirmed or differs from the coordinator')
         result.step('p0', 'redeploy-finish')
         code = result.verify()
         result.journal.execute('pointers', result.pointers)
-        atomic_json(marker_path, dict(marker, status='complete', completed_at=utc8_timestamp(), mode=site['mode']))
+        atomic_json(marker_path, dict(marker, status='complete', completed_at=utc8_timestamp(), mode=result.site['mode']))
         return code
 
     @staticmethod
@@ -548,6 +555,8 @@ class Rollout:
 
 
 def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_password=None):
+    if action == 'resume-finish':
+        action = 'upgrade'  # 兼容0.31.1调用方，统一完成升级。
     auth = {'ssh_password': ssh_password} if ssh_password is not None else {}
     recommission = action in {'recommission-plan', 'recommission'}
     uninstall = action in {'uninstall-plan', 'uninstall'}
@@ -557,10 +566,31 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
         raise ValueError('recommission only supports observe mode')
     site = load_site(config, 'observe' if recommission or uninstall else mode)
     with FileLock(safe_directory(INSTALL_ROOT / 'operations/cluster.lock', INSTALL_ROOT)):
-        if action == 'resume-finish':
-            return Rollout.resume_finish(archive, checksum, source, site, **auth)
+        marker_path = INSTALL_ROOT / 'operations/redeploy.json'
+        previous = read_json(marker_path, {})
+        continuation = previous.get('continuation', {})
+        if (action == 'upgrade' and previous.get('status') == 'in_progress'
+                and previous.get('archive_sha256') != checksum):
+            if not re.fullmatch('[0-9a-f]{20}', previous.get('operation', '')):
+                raise ValueError('invalid unfinished redeployment identity')
+            receipts = INSTALL_ROOT / 'operations' / previous['operation'] / 'coordinator'
+            if any(receipts.glob('*-redeploy-stop.json')):
+                continuation = dict(archive_sha256=checksum, mode=site['mode'],
+                                    profile=previous['profile'], operation=previous['operation'])
+                atomic_json(marker_path, dict(previous, continuation=continuation))
+                Rollout.resume_finish(archive, checksum, source, site, **auth)
+                previous = read_json(marker_path)
+        continuing = (bool(continuation) and continuation.get('archive_sha256') == checksum
+                      and (previous.get('status') == 'in_progress'
+                           or previous.get('archive_sha256') != checksum or action == 'verify'))
+        if continuing:
+            if action != 'verify' and continuation['mode'] != site['mode']:
+                raise ValueError('continue the requested upgrade mode until this transaction completes')
+            site = dict(site, profile_directory=str(safe_directory(Path(continuation['profile']), INSTALL_ROOT)))
         if action in {'upgrade', 'upgrade-plan'}:
             rollout = Rollout(archive, checksum, source, site, True, reset=True, **auth)
+            if continuing:
+                rollout.continuation = continuation
             return rollout.redeploy(plan=action == 'upgrade-plan')
         redeployment = read_json(INSTALL_ROOT / 'operations/redeploy.json', {})
         if redeployment.get('status') == 'in_progress' and action in {'apply', 'uninstall', 'recommission', 'verify'}:
