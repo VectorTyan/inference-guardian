@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ from inference_guardian.storage import FileLock, atomic_json, read_json
 from inference_guardian.observability.log_format import utc8_timestamp
 from .verification import verify_deployment
 from .uninstall import UninstallNode, restore_record, marker_path
+from inference_guardian.control.config import config_hash
 
 
 class NodeRelease:
@@ -550,6 +552,91 @@ class NodeRelease:
         self.ready()
         return dict(mode=self.request['mode'], internal_mode=target, canary_executed=True, recovery_exercised=False)
 
+    def reconcile_finish(self):
+        """仅续接已启动的收尾；先核对实际状态，绝不把未知Docker动作当作可重试。"""
+        prior = self.receipts.get('redeploy-finish')
+        if self.node != 'p0' or not prior:
+            raise ValueError('an existing p0 redeploy-finish receipt is required')
+        if prior.get('status') == 'complete':
+            return prior['result']
+        if prior.get('status') not in {'in_progress', 'unconfirmed'}:
+            raise ValueError('invalid finish receipt status; preserve it for inspection')
+        self.deploy.host_check()
+        with self.deploy._lock():
+            baseline = self.deploy.inspect_baseline()
+            release = baseline.get('release', {})
+            if (release.get('operation') != self.operation
+                    or release.get('archive_sha256') != self.request['archive_sha256']
+                    or baseline.get('guardian_image') != self.request['image_id']):
+                raise ValueError('finish request differs from the adopted release')
+            require_state_history(self.deploy.state, controller=True)
+            audit = self.deploy.audit_log()
+            backend = self.deploy.component_manager(baseline, audit)
+            if set(baseline.get('components', {})) != {'agent', 'controller'}:
+                raise ValueError('both pinned Guardian components are required to resume finish')
+            components = {}
+            for role, cid in baseline['components'].items():
+                components[role] = backend.inspect(role, cid)
+                if not components[role]['State']['Running']:
+                    raise ValueError('Guardian stopped during finish; inspect its mode transition before resuming')
+            config = validate_controller(read_json(self.deploy.runtime / 'controller.json'))
+            state = self.deploy.controller_state()
+            if state.get('config_hash') != config_hash(config):
+                raise ValueError('Controller loaded configuration is unconfirmed; wait and inspect before resuming')
+            target = 'auto' if self.request['mode'] == 'recovery' else 'observe'
+            selection = read_json(self.work / 'mode-selection.json')
+            if selection is not None and (selection != dict(mode=self.request['mode'], internal_mode=target,
+                    mode_change_confirmed=True) or config['mode'] != target):
+                raise ValueError('mode selection differs from the running Controller')
+            self.deploy._quiet(config, target)
+            if any((self.deploy.state / 'controller/commands').glob('*.json')):
+                raise ValueError('Controller command is still pending; wait before resuming finish')
+            self.deploy.require_clear_journals(config, require_startup=target == 'auto')
+            # 审计链由audit_log核验。意图后的进程退出不能通过缺少mode-selection判定未执行。
+            pending = {}
+            for path in sorted((self.deploy.state / 'deployment-audit').glob('audit-*.jsonl')):
+                for line in path.read_text(encoding='utf-8').splitlines():
+                    record = json.loads(line)
+                    event, fields = record['event'], record['fields']
+                    role = fields.get('service')
+                    if event == 'guardian_operation_intent':
+                        if role in pending:
+                            raise ValueError('multiple unconfirmed Guardian operations require inspection')
+                        pending[role] = record
+                    elif event == 'guardian_operation_result' and fields.get('confirmed') is True:
+                        previous = pending.get(role)
+                        if not previous or previous['fields']['operation'] != fields['operation']:
+                            raise ValueError('Guardian operation audit does not match its intent')
+                        del pending[role]
+                    elif event == 'guardian_target_unconfirmed':
+                        pending[role] = dict(record, fields=dict(fields, operation=['container', fields['action']]))
+                    elif event == 'guardian_operation_reconciled':
+                        if role not in pending or pending[role]['seq'] != fields.get('intent_seq'):
+                            raise ValueError('Guardian reconciliation audit differs from its intent')
+                        del pending[role]
+            for role, intent in pending.items():
+                # 只确认已经加载目标配置且健康的Controller启动；不补发stop/start。
+                if (role != 'controller' or intent['fields']['operation'] != ['container', 'start']
+                        or config['mode'] != target):
+                    raise ValueError('unconfirmed Guardian operation requires inspection; no replay')
+                self.deploy.require_fresh_readiness(config)
+                started = re.fullmatch(r'(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,9}))?Z',
+                                       components[role]['State'].get('StartedAt', ''))
+                if not started:
+                    raise ValueError('Controller startup epoch is unconfirmed; no replay')
+                epoch = datetime.strptime(started[1], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
+                epoch += float('0.' + (started[2] or '0'))
+                if any(state['groups'][group['id']].get(field, 0) < epoch for group in config['groups']
+                       for field in ('last_observed_at', 'last_canary')):
+                    raise ValueError('Controller readiness predates its current startup; wait before resuming')
+                audit.emit('guardian_operation_reconciled', service=role, intent_seq=intent['seq'],
+                           component_id=baseline['components'][role], config_hash=state['config_hash'],
+                           operation=self.operation, observed_running=True, replayed=False)
+            audit.emit('release_finish_reconciled', operation=self.operation, receipt_status=prior['status'],
+                       target_mode=target, helper_version=__version__, model_mutations=0)
+        # 只有上述证据通过才重新等待健康；原回执嵌入previous_attempt，未知动作仍保留。
+        return self.receipts.execute('redeploy-finish', self.finish, retry_safe=True)
+
     def verify(self):
         # 配置指纹跨软件版本可相同；健康不能替代目标源码包/镜像的发布验收。
         baseline = self.deploy.inspect_baseline()
@@ -584,6 +671,9 @@ class NodeRelease:
             return self.verify()
         if action.startswith('receipt-'):
             return self.receipts.get(action[8:])
+        if action == 'reconcile-redeploy-finish':
+            with FileLock(self.root / 'operations' / (self.node + '.lock')):
+                return self.reconcile_finish()
         methods = {'prepare': self.prepare, 'freeze': self.freeze, 'stop-agent': self.stop_agent,
                    'activate': self.activate, 'start': self.start, 'finish': self.finish,
                    'recommission-remove': lambda: Recommission(self).remove()}

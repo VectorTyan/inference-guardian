@@ -143,6 +143,8 @@ class Rollout:
         self.image_id = None
 
     def request(self, node):
+        if hasattr(self, 'finish_requests'):
+            return dict(self.finish_requests[node])
         request = dict(operation=self.operation, node=node, profile=str(self.profile), mode=self.site['mode'],
                     image_id=self.image_id, archive_sha256=self.checksum,
                     readiness_timeout_seconds=self.site['readiness_timeout_seconds'])
@@ -221,6 +223,11 @@ class Rollout:
             if receipt.get('status') == 'complete':
                 atomic_json(self.journal.path(key), dict(previous, status='complete', result=receipt['result']))
                 return receipt['result']
+            if node == 'p0' and action == 'redeploy-finish':
+                result = self.call(node, 'reconcile-redeploy-finish')
+                atomic_json(self.journal.path(key), dict(previous, status='complete', result=result,
+                                                       completed=time.time(), reconciled=True))
+                return result
             raise ValueError('unconfirmed remote step; inspect receipts before continuing: ' + key)
         return self.journal.execute(key, lambda:self.call(node, action), retry_safe=action in {'prepare', 'redeploy-prepare'})
 
@@ -314,6 +321,69 @@ class Rollout:
                                  completed_at=utc8_timestamp(), mode=self.site['mode'],
                                  profile=str(self.profile), archive_sha256=self.checksum))
         return result
+
+    @classmethod
+    def resume_finish(cls, archive, checksum, source, site, *, ssh_password=None):
+        """补丁工具只完成原发布收尾；不生成新输入、不构建镜像、不重放发布阶段。"""
+        marker_path = INSTALL_ROOT / 'operations/redeploy.json'
+        marker = read_json(marker_path, {})
+        operation = marker.get('operation', '')
+        if (marker.get('status') != 'in_progress' or not re.fullmatch('[0-9a-f]{20}', operation)
+                or marker.get('archive_sha256') != checksum):
+            raise ValueError('no matching unfinished redeployment to finish')
+        result = cls.__new__(cls)
+        result.operation, result.checksum, result.source = operation, checksum, source
+        result.archive, result.version, result.site = archive, read_source_version(source), site
+        result.work = safe_directory(INSTALL_ROOT / 'operations' / operation, INSTALL_ROOT)
+        result.journal = Receipts(result.work / 'coordinator', operation)
+        result.profile = safe_directory(Path(marker['profile']), INSTALL_ROOT)
+        manifest = read_json(result.profile / 'source-manifest.json')
+        result.nodes = tuple(validate_manifest(manifest))
+        result.deployment_id = manifest_deployment_id(manifest)
+        image = result.journal.get('image')
+        if image.get('status') != 'complete':
+            raise ValueError('original image receipt must be complete')
+        result.image_id = image['result']['image_id']
+        result.finish_requests = {}
+        for node in result.nodes:
+            # 请求是在原轮次逐阶段调用前写入；选定已构建镜像后的唯一内容，保持完整摘要。
+            requests = {}
+            for path in (result.work / node).glob('request-*.json'):
+                request = read_json(safe_directory(path, INSTALL_ROOT))
+                if path.name != 'request-' + digest(request)[:16] + '.json':
+                    raise ValueError('original release request hash differs')
+                if request.get('image_id') != result.image_id:
+                    continue
+                if (request.get('operation') != operation or request.get('node') != node
+                        or request.get('archive_sha256') != checksum or request.get('profile') != str(result.profile)
+                        or request.get('mode') != site['mode']):
+                    raise ValueError('original finish request differs; retain its mode and frozen inputs')
+                requests[digest(request)] = request
+            if len(requests) != 1:
+                raise ValueError('one original release request required for ' + node)
+            result.finish_requests[node] = next(iter(requests.values()))
+            for step in ('prepare', 'stop', 'reset', 'records', 'adopt', 'start'):
+                if result.journal.get(node + '-redeploy-' + step).get('status') != 'complete':
+                    raise ValueError('only a fully started deployment may resume finish: ' + node + '-' + step)
+        if not result.journal.get('p0-redeploy-finish'):
+            raise ValueError('original p0 finish intent is required')
+        result.transport = Transport(site, {n['id']: n['host'] for n in manifest['nodes']},
+                                     **({'password': ssh_password} if ssh_password is not None else {}))
+        NodeRelease(result.request('p0')).host()
+        for node in result.nodes:
+            receipt = result.call(node, 'receipt-redeploy-start')
+            if (receipt.get('identity') != digest(result.request(node)) or receipt.get('status') != 'complete'):
+                raise ValueError('original node startup receipt is unconfirmed: ' + node)
+        finish = result.call('p0', 'receipt-redeploy-finish')
+        if (finish.get('identity') != digest(result.request('p0')) or not finish
+                or (result.journal.get('p0-redeploy-finish')['status'] == 'complete'
+                    and finish.get('status') != 'complete')):
+            raise ValueError('original node finish receipt is unconfirmed or differs from the coordinator')
+        result.step('p0', 'redeploy-finish')
+        code = result.verify()
+        result.journal.execute('pointers', result.pointers)
+        atomic_json(marker_path, dict(marker, status='complete', completed_at=utc8_timestamp(), mode=site['mode']))
+        return code
 
     @staticmethod
     def progress(stage, node='p0'):
@@ -487,6 +557,8 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
         raise ValueError('recommission only supports observe mode')
     site = load_site(config, 'observe' if recommission or uninstall else mode)
     with FileLock(safe_directory(INSTALL_ROOT / 'operations/cluster.lock', INSTALL_ROOT)):
+        if action == 'resume-finish':
+            return Rollout.resume_finish(archive, checksum, source, site, **auth)
         if action in {'upgrade', 'upgrade-plan'}:
             rollout = Rollout(archive, checksum, source, site, True, reset=True, **auth)
             return rollout.redeploy(plan=action == 'upgrade-plan')

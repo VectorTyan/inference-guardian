@@ -9,9 +9,26 @@ ig() { python3 -B packages/install_guardian.py "$@" --archive "$ARCHIVE" --manif
 # ARCHIVE 指向已部署版本的完整源码包，PLAN 指向上一步输出的 plan_file。
 ig verify --mode observe
 ig exercise-plan --node p1 --fault container-stop --mode observe
-ig exercise --plan-file "$PLAN" --wait-seconds 600
+ig exercise --plan-file "$PLAN" --wait-seconds 900
 ig exercise-report --plan-file "$PLAN"
 ig exercise-restore --plan-file "$PLAN"
 ```
 
 observe 检测通过时报告为 detected_restore_required，Controller 模型动作数为 0。人工恢复通过时报告为 closed、passed=true 且 manual_restore.self_check=passed。四机 D 组选择 d1 并创建独立计划。在人工验收关闭后，可执行 `ig upgrade --mode recovery`。自动恢复验收需要新的 recovery 模式计划。中断后先查原计划的 exercise-report，未知动作不重放。日志、审计、计划及验收报告保存在部署端。
+
+若升级尚停留在 p0-redeploy-finish，先按[升级收尾续接](operations.md#续接旧版本未完成的升级收尾)完成原事务。不能用故障注入或再次完整重部署清除未确认的收尾记录。使用补丁工具完成旧事务后，下面的 ARCHIVE 仍指向原已验收源码包，直到另一次完整升级成功。
+
+对于已完成 recovery 验收的四机 P/D 部署，按 P1、D1 顺序分别执行 process-exit 演练。每次只执行一个计划，第一组报告 closed、passed=true 后再开始下一组。PLAN 使用该次 exercise-plan 输出的 plan_file，不复用旧计划。
+
+```bash
+ig verify --mode recovery
+ig exercise-plan --node p1 --fault process-exit --mode recovery
+ig exercise --plan-file "$PLAN" --wait-seconds 900
+ig exercise-report --plan-file "$PLAN"
+# 第一组验收关闭后，创建 D1 的独立计划并将 PLAN 更新为新 plan_file。
+ig exercise-plan --node d1 --fault process-exit --mode recovery
+ig exercise --plan-file "$PLAN" --wait-seconds 900
+ig exercise-report --plan-file "$PLAN"
+```
+
+900 秒只控制本次报告轮询等待，适用于预计约十分钟加载权重的演练；它不改变升级健康等待或模型启动超时。超时或终端中断后先重跑原计划的 exercise-report，不重复发送注入。确认 P 故障且 D 健康时报告应仅包含 P 组恢复，确认 D 故障时应包含 P+D；恢复完成后检查真实 canary、自检结果及宿主审计。自动恢复失败时先核对未知动作，能够对账后使用原计划的 `ig exercise-restore --plan-file "$PLAN"`。
