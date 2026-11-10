@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inference-guardian"
-version = "0.31.2"
+version = "0.31.3"
 description = "External Docker inference service monitoring and recovery with audit"
 # 宿主CLI从完整源码运行；Agent/Controller使用Dockerfile中的Python3.12。
 requires-python = ">=3.7.9"
