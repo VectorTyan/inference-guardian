@@ -24,6 +24,7 @@ from .mooncake_contract import MIXED_PROFILE, MIXED_EXAMPLES, SUPPORTED_DEPLOYME
 from .node_release import NodeRelease
 from .uninstall import read_marker, marker_path, plan_uninstall, execute_uninstall
 from .release_state import NODES, Receipts, RolloutError, error_record, load_site, tree_manifest, write_private
+from .release_state import REDEPLOY_STAGES, redeploy_steps
 from inference_guardian import read_source_version
 from inference_guardian.storage import FileLock, atomic_json, read_json
 from inference_guardian.observability.log_format import utc8_timestamp
@@ -241,19 +242,21 @@ class Rollout:
         self.progress(action, node)
         key = node + '-' + action
         previous = self.journal.get(key)
-        if previous and previous['status'] != 'complete' and action not in {'prepare', 'redeploy-prepare'}:
+        stage = REDEPLOY_STAGES.get(action, {})
+        retry_safe = action == 'prepare' or stage.get('retry_safe', False)
+        if previous and previous['status'] != 'complete' and not retry_safe:
             # SSH响应丢失时只查询远端确认记录，不重发变更动作。
             receipt = self.call(node, 'receipt-' + action)
             if receipt.get('status') == 'complete':
                 atomic_json(self.journal.path(key), dict(previous, status='complete', result=receipt['result']))
                 return receipt['result']
-            if node == 'p0' and action == 'redeploy-finish':
+            if node == 'p0' and stage.get('reconcile_finish'):
                 result = self.call(node, 'reconcile-redeploy-finish')
                 atomic_json(self.journal.path(key), dict(previous, status='complete', result=result,
                                                        completed=time.time(), reconciled=True))
                 return result
             raise ValueError('unconfirmed remote step; inspect receipts before continuing: ' + key)
-        return self.journal.execute(key, lambda:self.call(node, action), retry_safe=action in {'prepare', 'redeploy-prepare'})
+        return self.journal.execute(key, lambda:self.call(node, action), retry_safe=retry_safe)
 
     def redeploy_tokens(self):
         """已有Token复用，缺少的标准节点Token自动补齐；重试复用本轮已持久化凭据。"""
@@ -327,19 +330,8 @@ class Rollout:
         for node in self.nodes[1:]:
             self.journal.execute(node + '-image', lambda node=node:self.distribute_image(node, image), retry_safe=True)
         self.journal.execute('tokens', self.redeploy_tokens, retry_safe=True)
-        for node in self.nodes:
-            self.step(node, 'redeploy-prepare')
-        for node in self.nodes:
-            self.step(node, 'redeploy-stop')
-        for node in self.nodes:
-            self.step(node, 'redeploy-reset')
-        for node in self.nodes:
-            self.step(node, 'redeploy-records')
-        for node in self.nodes:
-            self.step(node, 'redeploy-adopt')
-        for node in self.nodes[1:] + ('p0',):
-            self.step(node, 'redeploy-start')
-        self.step('p0', 'redeploy-finish')
+        for node, action in redeploy_steps(self.nodes):
+            self.step(node, action)
         result = self.verify()
         self.journal.execute('pointers', self.pointers)
         atomic_json(marker, dict(operation=self.operation, inputs=self.input_digest, status='complete',
@@ -390,9 +382,10 @@ class Rollout:
             if len(requests) != 1:
                 raise ValueError('one original release request required for ' + node)
             result.finish_requests[node] = next(iter(requests.values()))
-            for step in ('prepare', 'stop', 'reset', 'records', 'adopt', 'start'):
-                if result.journal.get(node + '-redeploy-' + step).get('status') != 'complete':
-                    raise ValueError('only a fully started deployment may resume finish: ' + node + '-' + step)
+        for node, action in redeploy_steps(result.nodes):
+            if not REDEPLOY_STAGES[action].get('reconcile_finish'):
+                if result.journal.get(node + '-' + action).get('status') != 'complete':
+                    raise ValueError('only a fully started deployment may resume finish: ' + node + '-' + action)
         modes = {request['mode'] for request in result.finish_requests.values()}
         if len(modes) != 1:
             raise ValueError('original node requests disagree on mode')

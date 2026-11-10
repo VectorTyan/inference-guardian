@@ -22,6 +22,7 @@ from inference_guardian import __version__
 from .release_files import file_hash, safe_directory
 from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, DEPLOYMENT_ID, PROFILE, path_only_command_upgrade
 from .release_state import NODES, Receipts, RolloutError, error_record, snapshot, tree_manifest, write_private, require_state_history
+from .release_state import REDEPLOY_STAGES
 from .recommission import Recommission, guardian_inventory, data_paths
 from inference_guardian.observability.audit import AuditLog, verify as verify_audit
 from inference_guardian.containers.contract import bootstrap_stage_hashes
@@ -688,7 +689,8 @@ class NodeRelease:
         with FileLock(self.root / 'operations' / (self.node + '.lock')):
             if action == 'recommission-remove':
                 Recommission(self).check()
-            return self.receipts.execute(action, methods[action], retry_safe=action in {'prepare', 'redeploy-prepare'})
+            retry_safe = action == 'prepare' or REDEPLOY_STAGES.get(action, {}).get('retry_safe', False)
+            return self.receipts.execute(action, methods[action], retry_safe=retry_safe)
 
 
 def main(argv=None):

@@ -17,6 +17,26 @@ from inference_guardian.storage import atomic_json, read_json
 
 NODES = ('p0', 'p1', 'd0', 'd1')
 
+# 仅描述重部署协议；节点方法仍由NodeRelease显式映射，apply保持独立。
+REDEPLOY_STAGES = {
+    'redeploy-prepare': dict(nodes='all', retry_safe=True),
+    'redeploy-stop': dict(nodes='all'),
+    'redeploy-reset': dict(nodes='all'),
+    'redeploy-records': dict(nodes='all'),
+    'redeploy-adopt': dict(nodes='all'),
+    'redeploy-start': dict(nodes='workers_first'),
+    'redeploy-finish': dict(nodes='controller', reconcile_finish=True),
+}
+
+
+def redeploy_steps(nodes):
+    """所有节点完成前一阶段后再进入下一阶段；Controller最后启动。"""
+    order = {'all': nodes, 'workers_first': tuple(nodes)[1:] + ('p0',),
+             'controller': ('p0',)}
+    for action, stage in REDEPLOY_STAGES.items():
+        for node in order[stage['nodes']]:
+            yield node, action
+
 
 class RolloutError(ValueError):
     """可跨SSH传递的受控诊断，不包含凭据、Env或完整Docker响应。"""
