@@ -68,15 +68,22 @@ def verify_package(archive, expected):
 
 
 def check_extracted(directory, manifest):
+    """自包含的发布文件与源码树校验，也供宿主续接工具复用。"""
+    listed = set()
     for item in manifest['files']:
-        path = safe_directory(directory / item['path'], directory)
-        if not path.is_file() or file_hash(path) != item['sha256']:
+        name = item['path']
+        relative = PurePosixPath(name)
+        if (relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name
+                or name in listed or name == 'MANIFEST.json'):
+            raise ValueError('invalid release file list')
+        path = safe_directory(directory / name, directory)
+        if not path.is_file() or path.stat().st_size != item['bytes'] or file_hash(path) != item['sha256']:
             raise ValueError('existing release source has drifted: ' + item['path'])
+        listed.add(name)
     if json.loads((directory / 'MANIFEST.json').read_text(encoding='utf-8')) != manifest:
         raise ValueError('existing release manifest differs')
     # 复用源码时也核对新增内容，避免已移除的旧模块被重新导入或带入镜像。
     # 正常解释器缓存允许保留；配置、Token和状态均位于源码树之外。
-    listed = {item['path'] for item in manifest['files']}
     allowed = listed | {parent.as_posix() for name in listed for parent in PurePosixPath(name).parents}
     for name in ('src', 'scripts'):
         source = safe_directory(directory / name, directory)

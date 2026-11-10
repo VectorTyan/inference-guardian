@@ -1,8 +1,9 @@
 """受管理发布文件：摘要、路径校验、快照及排他写入；不操作容器。"""
 import hashlib
+import importlib.util
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shutil
 import tempfile
@@ -47,25 +48,22 @@ def existing_release(checksum, root=INSTALL_ROOT):
             or source.name != version + '-' + checksum[:16]
             or manifest.get('release_name') != 'inference-guardian-source-' + version + '.tar.gz'):
         raise ValueError('original release metadata differs from its directory')
-    listed = set()
-    for item in manifest['files']:
-        name = item['path']
-        relative = PurePosixPath(name)
-        if (relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name
-                or name in listed or name == 'MANIFEST.json'):
-            raise ValueError('invalid original release file list')
-        path = safe_directory(source / name, source)
-        if not path.is_file() or path.stat().st_size != item['bytes'] or file_hash(path) != item['sha256']:
-            raise ValueError('original release file differs: ' + name)
-        listed.add(name)
+    # 从本版本入口加载纯校验函数，不执行main、不注册sys.modules，
+    # 也绝不加载待核对旧目录的代码。单文件启动因此无需额外依赖或生成副本。
+    path = Path(__file__).resolve().parents[1] / 'install_guardian.py'
+    spec = importlib.util.spec_from_file_location('_guardian_release_checks', path)
+    bootstrap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap)
+    try:
+        bootstrap.check_extracted(source, manifest)
+    except ValueError as error:
+        # 保留续接路径原有诊断措辞；核对逻辑只有安装入口中的一份实现。
+        message = str(error).replace('invalid release file list', 'invalid original release file list')
+        message = message.replace('existing release source has drifted', 'original release file differs')
+        raise ValueError(message.replace('unexpected release source', 'unexpected original release source')) from None
+    listed = {item['path'] for item in manifest['files']}
     if not {'pyproject.toml', 'scripts/rollout_node.py', 'src/inference_guardian/__init__.py'} <= listed:
         raise ValueError('original release is incomplete')
-    allowed = listed | {parent.as_posix() for name in listed for parent in PurePosixPath(name).parents}
-    for folder in ('src', 'scripts'):
-        for path in (source / folder).rglob('*'):
-            relative = path.relative_to(source)
-            if path.is_symlink() or ('__pycache__' not in relative.parts and relative.as_posix() not in allowed):
-                raise ValueError('unexpected original release source: ' + relative.as_posix())
     return source
 
 
