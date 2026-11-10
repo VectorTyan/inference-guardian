@@ -16,7 +16,7 @@ import time
 from .deployment import (GuardianDeployment, DEFAULT_INSTALL_ROOT, DEFAULT_RUNTIME_ROOT,
                             DEFAULT_STATE_ROOT, PREVIOUS_STATE_ROOT, LEGACY_STATE_ROOT,
                             digest, private_dir, validate_controller, validate_agent)
-from .components import document
+from .components import document, pending_operations
 from .image import probe_startup
 from inference_guardian import __version__
 from .release_files import file_hash, safe_directory
@@ -594,27 +594,10 @@ class NodeRelease:
                 raise ValueError('Controller command is still pending; wait before resuming finish')
             self.deploy.require_clear_journals(config, require_startup=target == 'auto')
             # 审计链由audit_log核验。意图后的进程退出不能通过缺少mode-selection判定未执行。
-            pending = {}
-            for path in sorted((self.deploy.state / 'deployment-audit').glob('audit-*.jsonl')):
-                for line in path.read_text(encoding='utf-8').splitlines():
-                    record = json.loads(line)
-                    event, fields = record['event'], record['fields']
-                    role = fields.get('service')
-                    if event == 'guardian_operation_intent':
-                        if role in pending:
-                            raise ValueError('multiple unconfirmed Guardian operations require inspection')
-                        pending[role] = record
-                    elif event == 'guardian_operation_result' and fields.get('confirmed') is True:
-                        previous = pending.get(role)
-                        if not previous or previous['fields']['operation'] != fields['operation']:
-                            raise ValueError('Guardian operation audit does not match its intent')
-                        del pending[role]
-                    elif event == 'guardian_target_unconfirmed':
-                        pending[role] = dict(record, fields=dict(fields, operation=['container', fields['action']]))
-                    elif event == 'guardian_operation_reconciled':
-                        if role not in pending or pending[role]['seq'] != fields.get('intent_seq'):
-                            raise ValueError('Guardian reconciliation audit differs from its intent')
-                        del pending[role]
+            records = (json.loads(line)
+                       for path in sorted((self.deploy.state / 'deployment-audit').glob('audit-*.jsonl'))
+                       for line in path.read_text(encoding='utf-8').splitlines())
+            pending = pending_operations(records)
             for role, intent in pending.items():
                 # 只确认已经加载目标配置且健康的Controller启动；不补发stop/start。
                 if (role != 'controller' or intent['fields']['operation'] != ['container', 'start']

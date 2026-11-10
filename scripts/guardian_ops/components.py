@@ -16,6 +16,30 @@ IMAGE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 CID = re.compile(r"[0-9a-f]{64}\Z")
 
 
+def pending_operations(records):
+    """归并已验证审计链中的Docker意图；unconfirmed保留原意图，不代表新派发许可。"""
+    pending = {}
+    for record in records:
+        event, fields = record['event'], record['fields']
+        role = fields.get('service')
+        if event == 'guardian_operation_intent':
+            if role in pending:
+                raise ValueError('multiple unconfirmed Guardian operations require inspection')
+            pending[role] = record
+        elif event == 'guardian_operation_result' and fields.get('confirmed') is True:
+            previous = pending.get(role)
+            if not previous or previous['fields']['operation'] != fields['operation']:
+                raise ValueError('Guardian operation audit does not match its intent')
+            del pending[role]
+        elif event == 'guardian_target_unconfirmed':
+            pending[role] = dict(record, fields=dict(fields, operation=['container', fields['action']]))
+        elif event == 'guardian_operation_reconciled':
+            if role not in pending or pending[role]['seq'] != fields.get('intent_seq'):
+                raise ValueError('Guardian reconciliation audit differs from its intent')
+            del pending[role]
+    return pending
+
+
 def role_security_args(role):
     if role == "agent":
         return ["--privileged"]
