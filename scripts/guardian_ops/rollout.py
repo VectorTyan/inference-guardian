@@ -20,7 +20,8 @@ from .profile_generation import generate, check_profile, upgrade_profile, compil
 from .tokens import generate as generate_tokens
 from .credentials import remap_secrets
 from .release_files import INSTALL_ROOT, file_hash, safe_directory
-from .mooncake_contract import MIXED_PROFILE, MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, manifest_deployment_id, is_mixed, validate_manifest, PROFILE, V4_EXAMPLE, DEPLOYMENT_ID
+from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, manifest_deployment_id, validate_manifest, PROFILE, V4_EXAMPLE, DEPLOYMENT_ID
+from .presets import SINGLE_EXAMPLES, deployment_nodes, deployment_profile
 from .node_release import NodeRelease
 from .uninstall import read_marker, marker_path, plan_uninstall, execute_uninstall
 from .release_state import NODES, Receipts, RolloutError, error_record, load_site, tree_manifest, write_private
@@ -45,7 +46,7 @@ def require_upgrade_clear(root, mode):
         identity = barrier.get('deployment_id', DEPLOYMENT_ID)
         if not re.fullmatch('[0-9a-f]{20}', operation) or identity not in SUPPORTED_DEPLOYMENTS:
             raise RolloutError('RECOMMISSION_INCOMPLETE', '重新接管记录不完整，先核对原计划')
-        nodes = ('p0', 'p1') if identity in MIXED_EXAMPLES else NODES
+        nodes = deployment_nodes(identity)
         for node in nodes:
             receipt = read_json(root / 'operations' / operation / 'coordinator' / (node + '-recommission-remove.json'), {})
             if receipt.get('status') != 'complete':
@@ -73,7 +74,6 @@ def freeze_profile(source, site, *, migrate=False):
         raise ValueError('complete regular-file profile required: source-manifest.json')
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
-    mixed = is_mixed(manifest)
     identity = manifest_deployment_id(manifest)
     if active and identity != active:
         raise ValueError('this dedicated host already manages a different model deployment')
@@ -107,10 +107,11 @@ def freeze_profile(source, site, *, migrate=False):
         selected = settings
         # 内置示例旁的策略只是首次安装默认值。升级沿用已验收策略；
         # 独立可编辑目录里的显式策略仍按现场输入处理。
-        if inherited is not None and profile in [examples / name for name in MIXED_EXAMPLES.values()]:
+        if inherited is not None and profile in [examples / name for name in (*MIXED_EXAMPLES.values(), *SINGLE_EXAMPLES.values())]:
             selected = None
         if selected is None and inherited is None:
-            defaults = (examples/MIXED_EXAMPLES[identity] if mixed else examples)/'probe-settings.json'
+            specific = {**MIXED_EXAMPLES, **SINGLE_EXAMPLES}
+            defaults = (examples/specific[identity] if identity in specific else examples)/'probe-settings.json'
             if defaults.is_symlink() or not defaults.is_file():
                 raise ValueError('regular shared probe defaults required for first installation')
             selected = defaults.read_bytes()
@@ -136,7 +137,7 @@ def freeze_profile(source, site, *, migrate=False):
     elif site['profile_directory'] and json.loads(raw['source-manifest.json'])['version'] == 5:
         raw = upgrade_profile(profile, previous_manifests=previous_layouts(), add_missing_exit_policy=False)
     revision = digest({name:__import__('hashlib').sha256(data).hexdigest() for name,data in raw.items()})
-    target = INSTALL_ROOT / 'config/profiles' / revision / (MIXED_PROFILE if mixed else PROFILE)
+    target = INSTALL_ROOT / 'config/profiles' / revision / deployment_profile(identity)
     for name, data in raw.items():
         write_private(target / name, data)
     check_profile(target)
@@ -631,7 +632,7 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
             identity = history_loss.get('deployment_id', DEPLOYMENT_ID)
             if identity not in SUPPORTED_DEPLOYMENTS:
                 raise ValueError('unknown deployment in recommission record')
-            for node in (('p0', 'p1') if identity in MIXED_EXAMPLES else NODES):
+            for node in deployment_nodes(identity):
                 receipt = read_json(INSTALL_ROOT / 'operations' / cleanup / 'coordinator'
                                     / (node + '-recommission-remove.json'), {})
                 if receipt.get('status') != 'complete':

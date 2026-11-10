@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 from .deployment import GuardianDeployment, remap_secrets
 from .transport import Transport
 from .release_files import INSTALL_ROOT, safe_directory, digest, write_private
-from .mooncake_contract import DEPLOYMENT_ID, PROFILE, MIXED_PROFILE, MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS
+from .mooncake_contract import DEPLOYMENT_ID, SUPPORTED_DEPLOYMENTS, is_single
+from .presets import deployment_nodes, deployment_profile
 from .release_state import NODES, load_site, Receipts
 from .verification import agent_get, verify_deployment
 from inference_guardian.observability.audit import AuditLog, verify as verify_audit
@@ -104,8 +105,12 @@ class RecoveryExercise:
                         sum(now-t < policy['attempt_window_seconds'] for t in group['attempts']) >= policy['max_attempts_per_window']):
                     raise ValueError('recovery budget exhausted; wait for the configured reset/window, never clear history')
 
+    def exercise_nodes(self):
+        groups = self.deployment.source_controller['groups']
+        return {'p0'} if len(groups) == 1 and groups[0]['topology'] == 'single_node_mixed' else {'p1', 'd1'}
+
     def plan(self, node, fault, mode):
-        if node not in {'p1', 'd1'} or fault not in {'process-exit', 'container-stop'} or mode not in {'observe', 'recovery'}:
+        if node not in self.exercise_nodes() or fault not in {'process-exit', 'container-stop'} or mode not in {'observe', 'recovery'}:
             raise ValueError('unsupported exercise case')
         if read_json(self.marker, {}).get('status', 'closed') != 'closed':
             raise ValueError('previous exercise still open; collect its report and restore first')
@@ -113,8 +118,8 @@ class RecoveryExercise:
         self.budget(mode)
         acceptance = self.ready(mode)
         groups = self.config()['groups']
-        if len(groups) != 1 or not ('partial_recovery' in groups[0] or groups[0]['topology'] == 'multi_node_mixed'):
-            raise ValueError('exercise requires the reviewed single P/D recovery group')
+        if len(groups) != 1 or not ('partial_recovery' in groups[0] or groups[0]['topology'] in {'multi_node_mixed', 'single_node_mixed'}):
+            raise ValueError('exercise requires one reviewed recovery group')
         group = groups[0]
         member = next((m for m in group['members'] if m['node'] == node), None)
         if member is None:
@@ -144,7 +149,7 @@ class RecoveryExercise:
         if (plan.get('kind') != 'recovery-exercise' or digest(content)[:20] != identifier
                 or path != self.root/'reports'/('exercise-'+identifier)/'plan.json'
                 or plan['archive'] != self.checksum or plan['source_hash'] != self.deployment.source_hash
-                or plan['node'] not in {'p1','d1'} or plan['fault'] not in {'container-stop','process-exit'}
+                or plan['node'] not in self.exercise_nodes() or plan['fault'] not in {'container-stop','process-exit'}
                 or plan['mode'] not in {'observe','recovery'}):
             raise ValueError('exercise plan identity/configuration mismatch')
         return plan
@@ -316,10 +321,11 @@ class RecoveryExercise:
         else:
             container = next(c for c in self.deployment.agents[node]['containers'] if c['name'] == model['container'])
             command = container['bootstrap_commands'][stage]
-            if command['wait_for_exit'] is not True:
+            detached = command['wait_for_exit'] is False and is_single(self.deployment.source_manifest)
+            if command['wait_for_exit'] is not True and not detached:
                 raise ValueError('manual restore requires confirmed foreground bootstrap completion')
             self.transport.run(node, ['docker', '--host', 'unix:///var/run/docker.sock', 'exec',
-                               '-w', command['working_dir'], model['id'], *command['argv']],
+                               *(['-d'] if detached else []), '-w', command['working_dir'], model['id'], *command['argv']],
                                timeout=command['timeout_seconds'])
         after = self.restore_model(node, model)
         if (any(after[k] != before[k] for k in ('id', 'image', 'config_hash'))
@@ -615,7 +621,7 @@ def paths(node, root=INSTALL_ROOT):
 def installed(source, root=INSTALL_ROOT, *, verify=True):
     """以原接管指纹定位冻结配置；兼容旧深层布局，不能拿新模板冒充已部署配置。"""
     identity = active_identity(root) or DEPLOYMENT_ID
-    profile_name = MIXED_PROFILE if identity in MIXED_EXAMPLES else PROFILE
+    profile_name = deployment_profile(identity)
     runtime = root/'runtime'/identity/'p0'
     baseline = read_json(runtime/'adoption.json', {})
     if not baseline:
@@ -670,8 +676,8 @@ def run(action, source, config, node=None, service='agent', lines=200, root=INST
         raise ValueError('invalid node, service or line count')
     if action == 'paths':
         view = paths(selected, root)
-        if view['deployment_id'] in MIXED_EXAMPLES and selected not in ('p0', 'p1'):
-            raise ValueError('node is absent from the installed mixed profile')
+        if selected not in deployment_nodes(view['deployment_id']):
+            raise ValueError('node is absent from the installed profile')
         print(json.dumps(view, ensure_ascii=False, indent=2))
         return 0
     deployment = installed(source, root)

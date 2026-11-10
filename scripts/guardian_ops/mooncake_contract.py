@@ -1,10 +1,11 @@
-"""四节点启动路径契约；旧摘要格式仅用于读取既有配置及升级识别。"""
+"""模型启动路径契约；旧摘要格式仅用于读取既有配置及升级识别。"""
 from __future__ import annotations
 
 import ast
 import copy
 import hashlib
 import json
+from pathlib import PurePosixPath
 import re
 import shlex
 
@@ -13,7 +14,8 @@ from .presets import (
     MIXED_SCENARIO, MIXED_W8A8_EXAMPLE, MIXED_W8A8_ID, MODEL, PROFILE,
     RETIRED_DEPLOYMENT_IDS, SCENARIO, SCRIPT_DIRECTORY, SUPPORTED_DEPLOYMENTS,
     LEGACY_DIRECTORY_LABEL as _DIRECTORY_LABEL,
-    V4_EXAMPLE, V41_EXAMPLE, LEGACY_CONTAINER as _LEGACY_CONTAINER, LEGACY_GROUP as _LEGACY_GROUP,
+    V4_EXAMPLE, V41_EXAMPLE, SINGLE_EXAMPLES, SINGLE_PROFILE,
+    LEGACY_CONTAINER as _LEGACY_CONTAINER, LEGACY_GROUP as _LEGACY_GROUP,
 )
 
 
@@ -24,8 +26,18 @@ def is_mixed(manifest):
                 and all(isinstance(n, dict) and n.get("role") == "mixed" for n in nodes)))
 
 
+def is_single(manifest):
+    return manifest.get('topology') == 'single_node_mixed'
+
+
+def is_direct_service(manifest):
+    return is_mixed(manifest) or is_single(manifest)
+
+
 def manifest_deployment_id(manifest):
     """旧两机清单保持 W4A8 身份，新部署由清单显式选择稳定身份。"""
+    if is_single(manifest):
+        return manifest.get('deployment_id')
     return manifest.get("deployment_id", MIXED_ID) if is_mixed(manifest) else DEPLOYMENT_ID
 
 
@@ -51,7 +63,7 @@ def set_hash(hashes):
 def source_files(node, manifest=None):
     if manifest is not None and manifest["version"] == 6:
         entries = list(_stage_scripts(manifest, node).values()) + manifest["required_files"]
-        if node == "p0" and not is_mixed(manifest):
+        if node == "p0" and not is_direct_service(manifest):
             entries += manifest["proxy"]["required_files"]
         return list(dict.fromkeys(entries))
     files = ["start_mooncake.sh", f"start_{node}.sh", "launch_online_dp.py", "run_dp_template.sh", "mooncake.json"]
@@ -96,7 +108,7 @@ def _v6_path(value, root):
 
 def _stage_scripts(manifest, node):
     item = next(n for n in manifest["nodes"] if n["id"] == node)
-    if is_mixed(manifest):
+    if is_direct_service(manifest):
         return {"serve": item["startup_script"]}
     scripts = ({"mooncake": manifest["mooncake"]["startup_script"]}
                if node in manifest["mooncake"]["startup_nodes"] else {})
@@ -147,6 +159,58 @@ def _validate_mixed(manifest):
     return {n["id"]: n for n in nodes}
 
 
+def _validate_single(manifest):
+    """单机单实例：设备、挂载及前台/后台启动方式来自清单，不创建模型容器。"""
+    from ipaddress import IPv4Address
+    if (manifest.get('version') != 6 or set(manifest) != {'version', 'scenario', 'topology', 'deployment_id',
+            'script_directory', 'script_mount', 'startup_mode', 'model_path', 'served_model_name',
+            'required_files', 'nodes', 'external_port'} or manifest_deployment_id(manifest) not in SINGLE_EXAMPLES):
+        raise ValueError('invalid single-node service manifest or deployment_id')
+    if manifest['scenario'] in (SCENARIO, MIXED_SCENARIO):
+        raise ValueError('single-node deployment requires its own scenario identifier')
+    _v6_path(manifest['script_directory'], '')
+    _v6_path(manifest['model_path'], '/data')
+    _v6_name(manifest['served_model_name'])
+    mount = manifest['script_mount']
+    if not isinstance(mount, dict) or set(mount) != {'source', 'target'}:
+        raise ValueError('script_mount requires source and target')
+    for value in mount.values():
+        _v6_path(value, '')
+    try:
+        PurePosixPath(manifest['script_directory']).relative_to(mount['target'])
+    except ValueError:
+        raise ValueError('script_directory must be inside script_mount target') from None
+    if manifest['startup_mode'] not in {'foreground', 'background'}:
+        raise ValueError('startup_mode must be foreground or background')
+    if not isinstance(manifest['required_files'], list):
+        raise ValueError('required_files must be a list')
+    for name in manifest['required_files']:
+        _v6_name(name)
+    port = manifest['external_port']
+    if type(port) is not int or not 1 <= port <= 65535 or port == 19090:
+        raise ValueError('invalid single-node service API port')
+    nodes = manifest['nodes']
+    if not isinstance(nodes, list) or len(nodes) != 1 or not isinstance(nodes[0], dict):
+        raise ValueError('single-node layout requires exactly p0')
+    node = nodes[0]
+    if (set(node) != {'id', 'role', 'host', 'container', 'startup_script', 'dp', 'tp', 'local_dp', 'rank', 'npu_devices'}
+            or node['id'] != 'p0' or node['role'] != 'mixed'):
+        raise ValueError('invalid single-node fields')
+    _v6_name(node['container']); _v6_name(node['startup_script'], script=True)
+    if not isinstance(node['host'], str):
+        raise ValueError('single-node host must be an IPv4 address')
+    IPv4Address(node['host'])
+    devices = node['npu_devices']
+    if (not isinstance(devices, list) or not 1 <= len(devices) <= 64
+            or any(type(device) is not int or not 0 <= device <= 255 for device in devices)
+            or len(set(devices)) != len(devices)
+            or any(type(node[key]) is not int or node[key] <= 0 for key in ('dp', 'tp', 'local_dp'))
+            or node['local_dp'] != node['dp'] or type(node['rank']) is not int or node['rank'] != 0
+            or node['dp'] * node['tp'] != len(devices)):
+        raise ValueError('single-node DP/TP must match its distinct NPU devices')
+    return {'p0': node}
+
+
 def validate_manifest(manifest):
     """核对布局、名称和路径；旧版本摘要只维持既有配置身份兼容。"""
     if isinstance(manifest, dict) and manifest.get("version") == 6:
@@ -155,6 +219,8 @@ def validate_manifest(manifest):
             raise ValueError("scenario must be a safe group identifier of 1..80 characters")
         if scenario == SCENARIO and is_mixed(manifest):
             raise ValueError("legacy four-node scenario cannot describe mixed nodes")
+    if isinstance(manifest, dict) and is_single(manifest):
+        return _validate_single(manifest)
     if isinstance(manifest, dict) and is_mixed(manifest):
         return _validate_mixed(manifest)
     if (not isinstance(manifest, dict) or manifest.get("version") not in (3, 4, 5, 6)
@@ -338,10 +404,11 @@ def path_only_command_upgrade(previous, following, manifest, node):
 
 
 def bootstrap_command(script, manifest, node):
-    """固定工作目录与原脚本；30秒包含文件存在检查和启动壳返回。"""
+    """固定工作目录与原脚本；30秒确认派发，后台启动脚本还须正常退出。"""
     directory = manifest["script_directory"]
     return {"argv": ["bash", "-ic", f"cd {shlex.quote(directory)} && {bootstrap_guard(manifest, node)} && bash {shlex.quote('./'+script)}"],
-            "working_dir": directory, "timeout_seconds": 30, "wait_for_exit": True}
+            "working_dir": directory, "timeout_seconds": 30,
+            "wait_for_exit": manifest['startup_mode'] == 'background' if is_single(manifest) else True}
 
 
 def node_commands(manifest, node):

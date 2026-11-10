@@ -189,8 +189,8 @@ def main(argv=None):
         parser.error('exercise cannot use service/log or history-loss flags')
     if exercise:
         if args.action == 'exercise-plan':
-            if args.node not in {'p1', 'd1'} or not args.fault or not args.mode or args.plan_file or args.wait_seconds:
-                parser.error('exercise-plan requires --node p1|d1 --fault --mode, and no plan/wait')
+            if args.node not in {'p0', 'p1', 'd1'} or not args.fault or not args.mode or args.plan_file or args.wait_seconds:
+                parser.error('exercise-plan requires --node p0|p1|d1 --fault --mode, and no plan/wait')
         elif not args.plan_file or args.node or args.fault or args.mode:
             parser.error('exercise/exercise-report/exercise-restore require --plan-file, without node/fault/mode overrides')
     if not exercise and args.action not in {'status','logs','paths'} and (args.node or args.service != 'agent' or args.lines != 200):

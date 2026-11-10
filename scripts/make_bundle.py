@@ -86,15 +86,17 @@ def _release_inputs(root, data_root, base_archive=None):
     prefix = "examples/vllm-ascend/"
     add(data_root, prefix + "probe-settings.json")
     add(data_root, prefix + "README.md")
-    for key in ("V4_EXAMPLE", "V41_EXAMPLE", "MIXED_EXAMPLE", "MIXED_W8A8_EXAMPLE"):
-        folder = catalog[key]
+    folders = [(catalog[key], key.startswith('MIXED'))
+               for key in ("V4_EXAMPLE", "V41_EXAMPLE", "MIXED_EXAMPLE", "MIXED_W8A8_EXAMPLE")]
+    folders.extend((folder, True) for folder in catalog.get('SINGLE_EXAMPLES', {}).values())
+    for folder, has_policy in folders:
         if not isinstance(folder, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", folder):
             raise ValueError("invalid example folder in catalog")
         name = prefix + folder + "/source-manifest.json"
         if name in inputs:
             raise ValueError("duplicate example folder")
         add(data_root, name)
-        if key.startswith("MIXED"):
+        if has_policy:
             add(data_root, prefix + folder + "/probe-settings.json")
     for folder, directories, files in os.walk(root / "src", followlinks=False):
         directories[:] = sorted(d for d in directories if d not in EXCLUDE and not d.startswith("."))
@@ -179,7 +181,7 @@ def build(root, name, *, delivery_dir=None, base_archive=None):
             shutil.copyfile(source, target)
             entries.append({"path": relative, "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                             "bytes": target.stat().st_size, "mode": "0644"})
-        # 在写最终产物前，从暂存树读取选定目录，验证四套运行配置。
+        # 在写最终产物前，从暂存树读取选定目录，验证所有运行配置。
         subprocess.run([sys.executable, "-E", "-B", str(staging / "scripts/generate_external_profiles.py"),
                         "--check"], cwd=str(staging), check=True, stdout=subprocess.DEVNULL)
         manifest = {"version": version, "release_name": name,

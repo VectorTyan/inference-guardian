@@ -8,7 +8,7 @@ import sys
 from urllib.parse import urlsplit
 
 from inference_guardian.control.config import validate_probe
-from .mooncake_contract import is_mixed, endpoint_counts, validate_manifest, manifest_group_id, SCENARIO, MIXED_SCENARIO
+from .mooncake_contract import is_direct_service, is_single, endpoint_counts, validate_manifest, manifest_group_id, SCENARIO, MIXED_SCENARIO
 
 
 def render(value, context):
@@ -28,13 +28,13 @@ def build_probe_contract(manifest, settings):
     """端口只取来源清单；名称、路径、说明、断言及进程模板只取外部配置。"""
     nodes = validate_manifest(manifest)
     counts = endpoint_counts(nodes.values())
-    mixed = is_mixed(manifest)
-    sections = {"engine", "canary"} if mixed else {"mooncake", "engine", "proxy", "canary"}
+    direct = is_direct_service(manifest)
+    sections = {"engine", "canary"} if direct else {"mooncake", "engine", "proxy", "canary"}
     if (not isinstance(settings, dict) or settings.get("version") != 1
             or set(settings) - {"process_labels", "process_exit_detection"} != sections | {"version", "required_process_patterns"}):
         raise ValueError("probe-settings.json version 1 and all probe sections required")
     patterns = settings["required_process_patterns"]
-    if not isinstance(patterns, dict) or set(patterns) != ({"engine"} if mixed else {"mooncake", "engine", "proxy"}):
+    if not isinstance(patterns, dict) or set(patterns) != ({"engine"} if direct else {"mooncake", "engine", "proxy"}):
         raise ValueError("all required process patterns must be configured")
     labels = settings.get("process_labels", {})
     if not isinstance(labels, dict) or set(labels) - set(patterns):
@@ -83,7 +83,7 @@ def build_probe_contract(manifest, settings):
             raise ValueError("only engine probes may authorize health-status recovery")
         return spec
 
-    if mixed:
+    if direct:
         ctx = context("p0", manifest["external_port"])
         health, canary = probe("engine", ctx), probe("canary", ctx)
         if not (canary.get("json_any_checks") or canary.get("json_checks") or canary.get("min_response_bytes")):
@@ -166,10 +166,10 @@ def build_exit_detection(manifest, contract, settings):
     for item in manifest["nodes"]:
         node = item["id"]
         # 模板中引擎规则位于Master规则之后、Proxy规则之前；名称仍取外部模板。
-        index = 1 if not is_mixed(manifest) and node in manifest["mooncake"]["startup_nodes"] else 0
+        index = 1 if not is_direct_service(manifest) and node in manifest["mooncake"]["startup_nodes"] else 0
         rule = contract["processes"][node][index]
         members[node] = dict(rule_id=rule.get("id", "process-rule-" + str(index + 1)),
-            checks=[p["id"] for p in contract["engine"] if is_mixed(manifest) or urlsplit(p["url"]).hostname == item["host"]])
+            checks=[p["id"] for p in contract["engine"] if is_direct_service(manifest) or urlsplit(p["url"]).hostname == item["host"]])
     return dict(members=members, failure_threshold=option["failure_threshold"])
 
 
@@ -185,9 +185,10 @@ def validate_profile_probes(controller, agents, manifest, settings):
     if (manifest["version"] == 6 and manifest["scenario"] not in (SCENARIO, MIXED_SCENARIO)
             and group["id"] != manifest_group_id(manifest)):
         raise ValueError("recovery group must match the configured scenario")
-    if is_mixed(manifest):
+    if is_direct_service(manifest):
         expected = mixed_steps(list(validate_manifest(manifest)), contract["engine"])
-        if (group["topology"] != "multi_node_mixed" or group["health_checks"] != contract["engine"]
+        topology = 'single_node_mixed' if is_single(manifest) else 'multi_node_mixed'
+        if (group["topology"] != topology or group["health_checks"] != contract["engine"]
                 or group["recovery_steps"] != expected or "partial_recovery" in group
                 or group["canary"] != contract["canary"] or group["route"]["url"] != contract["route"]):
             raise ValueError("mixed recovery plan differs from manifest")

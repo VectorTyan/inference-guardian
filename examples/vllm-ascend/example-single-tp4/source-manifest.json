@@ -1,0 +1,25 @@
+{
+  "version": 6,
+  "scenario": "example-single-tp4",
+  "topology": "single_node_mixed",
+  "deployment_id": "example-single",
+  "script_directory": "/data/scripts/example-single",
+  "script_mount": {"source": "/data/model", "target": "/data"},
+  "startup_mode": "foreground",
+  "model_path": "/data/example-model-single",
+  "served_model_name": "example-single",
+  "required_files": [],
+  "nodes": [{
+    "id": "p0",
+    "role": "mixed",
+    "host": "192.0.2.31",
+    "container": "example-model-single",
+    "startup_script": "start_model.sh",
+    "dp": 1,
+    "tp": 4,
+    "local_dp": 1,
+    "rank": 0,
+    "npu_devices": [0, 1, 2, 3]
+  }],
+  "external_port": 9000
+}

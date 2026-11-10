@@ -1,4 +1,4 @@
-"""生成当前四机Ascend 1P1D的外部恢复配置，默认observe且关闭业务Gateway。
+"""按模型清单生成Ascend外部恢复配置，默认observe且关闭业务Gateway。
 
 端口读取source-manifest.json，探针及进程模板读取probe-settings.json。
 输出不固定现场CID/image/config PIN，adopt时才读取真实对象；不读写Docker或修改原模型脚本。
@@ -11,8 +11,9 @@ import json
 from itertools import chain
 from pathlib import Path
 from .mooncake_contract import DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, LAYOUT, PROFILE, V4_EXAMPLE, V41_EXAMPLE, node_commands, validate_manifest, path_only_manifest
-from .mooncake_contract import MIXED_EXAMPLE, MIXED_ID, MIXED_PROFILE, MIXED_EXAMPLES, manifest_deployment_id, manifest_group_id, is_mixed
-from .presets import PACKAGED_EXAMPLES as _PACKAGED_EXAMPLES
+from .mooncake_contract import MIXED_EXAMPLE, MIXED_ID, MIXED_PROFILE, MIXED_EXAMPLES, manifest_deployment_id, manifest_group_id
+from .mooncake_contract import is_single, is_direct_service
+from .presets import PACKAGED_EXAMPLES as _PACKAGED_EXAMPLES, SINGLE_EXAMPLES
 from .probe_config import mixed_steps, build_probe_contract, build_partial_recovery, build_exit_detection
 from inference_guardian.control.config import validate as validate_controller
 from inference_guardian.agent.config import validate_config as validate_agent
@@ -53,7 +54,8 @@ def _deployment(controller_node, deployment_id):
     source_generation仅用于来源说明，不控制容器启动，也不是框架/镜像版本。
     """
     return {"controller_node": controller_node, "deployment_id": deployment_id,
-            "source_generation": "external-mixed2node-v1" if deployment_id in MIXED_EXAMPLES else GENERATION}
+            "source_generation": "external-single-node-v1" if deployment_id in SINGLE_EXAMPLES else
+            "external-mixed2node-v1" if deployment_id in MIXED_EXAMPLES else GENERATION}
 
 
 def _deepseek(examples, directory=None, settings=None, manifest=None, logging_by_node=None):
@@ -81,9 +83,10 @@ def _deepseek(examples, directory=None, settings=None, manifest=None, logging_by
         "policy": {"startup_timeout_seconds": 3600, "canary_interval_seconds": 120,
                    "canary_max_age_seconds": 900, "stop_timeout_seconds": 30},
         "groups": []}
-    if is_mixed(manifest):
+    if is_direct_service(manifest):
         identity = manifest_deployment_id(manifest)
-        group = {"id": manifest_group_id(manifest), "framework": "vllm-ascend", "topology": "multi_node_mixed",
+        group = {"id": manifest_group_id(manifest), "framework": "vllm-ascend",
+                 "topology": "single_node_mixed" if is_single(manifest) else "multi_node_mixed",
                  "members": members, "instances": [{"id": "model", "role": "mixed", "members": identifiers}],
                  "health_checks": engine_checks, "canary": canary, "route": {"url": probes["route"], "max_inflight": 2},
                  "recovery_steps": mixed_steps(identifiers, engine_checks)}
@@ -155,7 +158,7 @@ def compile_service_manifest(directory, manifest_bytes, base, settings_bytes=Non
                 logging[node] = agent["logging"]
     outputs = _deepseek(EXAMPLES, directory, settings=settings, manifest=manifest, logging_by_node=logging)
     group = outputs[directory / "controller-external.json"]["groups"][0]
-    if not is_mixed(manifest):
+    if not is_direct_service(manifest):
         settings["proxy"]["json_checks"] = copy.deepcopy(group["health_checks"][-1]["json_checks"])
     settings["canary"]["json"] = copy.deepcopy(group["canary"]["json"])
     raw = {path.name: (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode() for path, value in outputs.items()}
@@ -269,7 +272,7 @@ def upgrade_profile(directory, *, previous_manifests=(), add_missing_exit_policy
     manifest = path_only_manifest(_read(directory / "source-manifest.json"))
     outputs = _deepseek(EXAMPLES, directory, settings=settings, manifest=manifest)
     group = outputs[directory / "controller-external.json"]["groups"][0]
-    if not is_mixed(manifest):
+    if not is_direct_service(manifest):
         settings["proxy"]["json_checks"] = copy.deepcopy(group["health_checks"][-1]["json_checks"])
     raw = {path.name: (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
            for path, value in outputs.items()}

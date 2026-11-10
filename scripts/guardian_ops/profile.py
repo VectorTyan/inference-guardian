@@ -4,6 +4,7 @@ import json
 import re
 from .release_files import digest
 from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, manifest_deployment_id, MIXED_PROFILE, is_mixed, DEPLOYMENT_ID, RETIRED_DEPLOYMENT_IDS, PROFILE, validate_manifest, node_commands
+from .mooncake_contract import SINGLE_EXAMPLES, SINGLE_PROFILE, is_single
 from .probe_config import validate_profile_probes
 from inference_guardian.control.config import validate as validate_controller
 from inference_guardian.agent.config import validate_config as validate_agent
@@ -48,11 +49,12 @@ class Profile:
         source = {"controller": self.source_controller, "agents": self.agents,
                   "controller_node": self.controller_node}
         self.source_manifest = None
-        if self.profile.name in (PROFILE, MIXED_PROFILE) or self.deployment_id in SUPPORTED_DEPLOYMENTS:
+        if self.profile.name in (PROFILE, MIXED_PROFILE, SINGLE_PROFILE) or self.deployment_id in SUPPORTED_DEPLOYMENTS:
             self.source_manifest = read_json(self.profile / "source-manifest.json")
             declared = validate_manifest(self.source_manifest)
             if (is_mixed(self.source_manifest) != (self.deployment_id in MIXED_EXAMPLES)
-                    or (is_mixed(self.source_manifest)
+                    or is_single(self.source_manifest) != (self.deployment_id in SINGLE_EXAMPLES)
+                    or ((is_mixed(self.source_manifest) or is_single(self.source_manifest))
                         and self.deployment_id != manifest_deployment_id(self.source_manifest))
                     or set(declared) != set(self.agents)):
                 raise ValueError("deployment identity or agent membership differs from topology")

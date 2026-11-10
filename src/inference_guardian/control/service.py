@@ -425,7 +425,7 @@ class Controller:
         if group.get("partial_recovery"):
             kind, blocked = select_scope(group, runtime, statuses, health, self.policy["failure_threshold"])
             proposal.update(scope=kind, scope_blocked=blocked)
-        elif group["topology"] == "multi_node_mixed":
+        elif group["topology"] in {"multi_node_mixed", "single_node_mixed"}:
             proposal["scope"] = "full"
         if any(previous.get(k) != v for k, v in proposal.items()) or self.clock() - previous.get("time", 0) >= 60:
             self.record("recovery_proposed", group=group["id"], **proposal)
@@ -698,7 +698,7 @@ class Controller:
         self.record("recovery_started", group=group["id"], reason=reason, generation=generation,
                         attempt=runtime["incident_attempts"], summary=copy.deepcopy(incident),
                         **({"scope": incident["scope"], "members": incident["members"]}
-                           if group.get("partial_recovery") or group["topology"] == "multi_node_mixed" else {}))
+                           if group.get("partial_recovery") or group["topology"] in {"multi_node_mixed", "single_node_mixed"} else {}))
         self.transition(group, "DRAINING", reason)
         try:
             # 这里只做有界等待，不证明在途请求已全部排空。启用可选Gateway时，

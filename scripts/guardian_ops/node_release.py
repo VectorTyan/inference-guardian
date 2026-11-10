@@ -20,7 +20,7 @@ from .components import document, pending_operations
 from .image import probe_startup
 from inference_guardian import __version__
 from .release_files import file_hash, safe_directory
-from .mooncake_contract import MIXED_EXAMPLES, SUPPORTED_DEPLOYMENTS, DEPLOYMENT_ID, PROFILE, path_only_command_upgrade
+from .mooncake_contract import SUPPORTED_DEPLOYMENTS, DEPLOYMENT_ID, PROFILE, path_only_command_upgrade
 from .release_state import NODES, Receipts, RolloutError, error_record, snapshot, tree_manifest, write_private, require_state_history
 from .release_state import REDEPLOY_STAGES
 from .recommission import Recommission, guardian_inventory, data_paths
@@ -201,7 +201,7 @@ class NodeRelease:
             raise ValueError('SSH destination does not own the configured node address')
 
     def baseline_candidates(self):
-        if self.deploy.deployment_id in MIXED_EXAMPLES:
+        if self.deploy.deployment_id != DEPLOYMENT_ID:
             return [self.deploy.baseline_path]
         return [self.deploy.baseline_path,
                 self.root / 'examples/vllm-ascend' / PROFILE / '.runtime' / self.node / 'adoption.json']

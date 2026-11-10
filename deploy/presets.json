@@ -6,6 +6,9 @@
   "MIXED_ID": "example-mixed-a",
   "MIXED_W8A8_EXAMPLE": "example-mixed-b",
   "MIXED_W8A8_ID": "example-mixed-b",
+  "SINGLE_EXAMPLES": {
+    "example-single": "example-single-tp4"
+  },
   "LEGACY_MIXED_EXAMPLE": "example-mixed",
   "LEGACY_CONTAINER": "example-model-a",
   "LEGACY_GROUP": "example-chat-a",

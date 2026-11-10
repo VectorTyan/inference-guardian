@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from guardian_ops.mooncake_contract import is_mixed, manifest_group_id, validate_manifest
+from guardian_ops.mooncake_contract import is_direct_service, manifest_group_id, validate_manifest
 from inference_guardian.observability.pd_metrics_relay import METRICS_PATH
 from inference_guardian.storage import atomic_json
 
@@ -59,7 +59,7 @@ def instance_layout(manifest, nodes, controller):
 
 
 def make_targets(manifest, inventory, controller=None, proxy_url=None, relay_port=None):
-    if not isinstance(manifest, dict) or is_mixed(manifest):
+    if not isinstance(manifest, dict) or is_direct_service(manifest):
         raise ValueError("PD source manifest required")
     if relay_port is None and manifest.get("version") not in (5, 6):
         raise ValueError("same-port mode requires a v5 or v6 manifest; legacy manifests pin the Proxy source hash")
