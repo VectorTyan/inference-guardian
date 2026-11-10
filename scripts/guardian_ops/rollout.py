@@ -29,6 +29,30 @@ from inference_guardian.storage import FileLock, atomic_json, read_json
 from inference_guardian.observability.log_format import utc8_timestamp
 
 
+def require_upgrade_clear(root, mode):
+    """仅当前指针代表活跃冲突；历史事务目录不授权重放，也不阻断重部署归档。"""
+    exercise = read_json(root / 'operations/exercise.json', {})
+    if exercise and exercise.get('status') != 'closed':
+        raise ValueError('open fault exercise blocks upgrade; close or reconcile its original plan first')
+    path = marker_path(root)
+    uninstall = read_marker(root) if path.exists() or path.is_symlink() else {}
+    if uninstall and uninstall['status'] not in {'complete', 'restored'}:
+        raise ValueError('incomplete uninstall blocks upgrade; reconcile its original receipts first')
+    barrier = read_json(root / 'operations/recommission-observe-required.json', {})
+    if barrier and not barrier.get('observe_verified'):
+        operation = barrier.get('operation', '')
+        identity = barrier.get('deployment_id', DEPLOYMENT_ID)
+        if not re.fullmatch('[0-9a-f]{20}', operation) or identity not in SUPPORTED_DEPLOYMENTS:
+            raise RolloutError('RECOMMISSION_INCOMPLETE', '重新接管记录不完整，先核对原计划')
+        nodes = ('p0', 'p1') if identity in MIXED_EXAMPLES else NODES
+        for node in nodes:
+            receipt = read_json(root / 'operations' / operation / 'coordinator' / (node + '-recommission-remove.json'), {})
+            if receipt.get('status') != 'complete':
+                raise RolloutError('RECOMMISSION_INCOMPLETE', '重新接管移除尚未确认：' + node)
+        if mode != 'observe':
+            raise RolloutError('OBSERVE_ACCEPTANCE_REQUIRED', '重新接管后必须先完成observe部署验收')
+
+
 def freeze_profile(source, site, *, migrate=False):
     examples = source / 'examples/vllm-ascend'
     profile = Path(site['profile_directory']) if site['profile_directory'] else examples / V4_EXAMPLE
@@ -373,6 +397,7 @@ class Rollout:
         if len(modes) != 1:
             raise ValueError('original node requests disagree on mode')
         result.site['mode'] = modes.pop()
+        require_upgrade_clear(INSTALL_ROOT, result.site['mode'])
         result.transport = Transport(site, {n['id']: n['host'] for n in manifest['nodes']},
                                      **({'password': ssh_password} if ssh_password is not None else {}))
         NodeRelease(result.request('p0')).host()
@@ -566,6 +591,8 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
         raise ValueError('recommission only supports observe mode')
     site = load_site(config, 'observe' if recommission or uninstall else mode)
     with FileLock(safe_directory(INSTALL_ROOT / 'operations/cluster.lock', INSTALL_ROOT)):
+        if action == 'upgrade':
+            require_upgrade_clear(INSTALL_ROOT, site['mode'])
         marker_path = INSTALL_ROOT / 'operations/redeploy.json'
         previous = read_json(marker_path, {})
         continuation = previous.get('continuation', {})
@@ -588,6 +615,8 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
                 raise ValueError('continue the requested upgrade mode until this transaction completes')
             site = dict(site, profile_directory=str(safe_directory(Path(continuation['profile']), INSTALL_ROOT)))
         if action in {'upgrade', 'upgrade-plan'}:
+            if action == 'upgrade':
+                require_upgrade_clear(INSTALL_ROOT, site['mode'])
             rollout = Rollout(archive, checksum, source, site, True, reset=True, **auth)
             if continuing:
                 rollout.continuation = continuation
