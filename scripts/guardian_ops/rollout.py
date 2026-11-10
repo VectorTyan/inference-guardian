@@ -586,8 +586,8 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
     with FileLock(safe_directory(INSTALL_ROOT / 'operations/cluster.lock', INSTALL_ROOT)):
         if action == 'upgrade':
             require_upgrade_clear(INSTALL_ROOT, site['mode'])
-        marker_path = INSTALL_ROOT / 'operations/redeploy.json'
-        previous = read_json(marker_path, {})
+        redeploy_marker = INSTALL_ROOT / 'operations/redeploy.json'
+        previous = read_json(redeploy_marker, {})
         continuation = previous.get('continuation', {})
         if (action == 'upgrade' and previous.get('status') == 'in_progress'
                 and previous.get('archive_sha256') != checksum):
@@ -597,9 +597,9 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
             if any(receipts.glob('*-redeploy-stop.json')):
                 continuation = dict(archive_sha256=checksum, mode=site['mode'],
                                     profile=previous['profile'], operation=previous['operation'])
-                atomic_json(marker_path, dict(previous, continuation=continuation))
+                atomic_json(redeploy_marker, dict(previous, continuation=continuation))
                 Rollout.resume_finish(archive, checksum, source, site, **auth)
-                previous = read_json(marker_path)
+                previous = read_json(redeploy_marker)
         continuing = (bool(continuation) and continuation.get('archive_sha256') == checksum
                       and (previous.get('status') == 'in_progress'
                            or previous.get('archive_sha256') != checksum or action == 'verify'))
@@ -618,13 +618,13 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
         if redeployment.get('status') == 'in_progress' and action in {'apply', 'uninstall', 'recommission', 'verify'}:
             raise ValueError('finish the current upgrade before another deployment operation')
         exercise = read_json(INSTALL_ROOT / 'operations/exercise.json', {})
-        if exercise and exercise.get('status') != 'closed' and action in {'apply', 'upgrade', 'uninstall', 'recommission'}:
+        if exercise and exercise.get('status') != 'closed' and action in {'apply', 'uninstall', 'recommission'}:
             raise ValueError('open fault exercise blocks deployment; inspect its report and restore/reconcile first')
         barrier = INSTALL_ROOT / 'operations/recommission-observe-required.json'
         history_loss = read_json(barrier, {})
         if history_loss and not history_loss.get('observe_verified') and site['mode'] != 'observe':
             raise RolloutError('OBSERVE_ACCEPTANCE_REQUIRED', '重新接管后必须先完成observe部署验收，之后才可显式启用recovery')
-        if history_loss and not history_loss.get('observe_verified') and action in {'plan', 'apply', 'upgrade-plan', 'upgrade', 'verify'}:
+        if history_loss and not history_loss.get('observe_verified') and action in {'plan', 'apply', 'verify'}:
             cleanup = history_loss.get('operation', '')
             if not re.fullmatch('[0-9a-f]{20}', cleanup):
                 raise RolloutError('RECOMMISSION_INCOMPLETE', '重新接管操作记录不完整')
@@ -636,18 +636,16 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
                                     / (node + '-recommission-remove.json'), {})
                 if receipt.get('status') != 'complete':
                     raise RolloutError('RECOMMISSION_INCOMPLETE', node + '的移除结果尚未确认，先核对原重新接管回执')
-        rollout = Rollout(archive, checksum, source, site, action in {'upgrade-plan', 'upgrade', 'verify'}, **auth)
+        rollout = Rollout(archive, checksum, source, site, action == 'verify', **auth)
         if action == 'verify' and redeployment.get('status') == 'complete':
             rollout.operation = redeployment['operation']
             rollout.work = INSTALL_ROOT / 'operations' / rollout.operation
             rollout.journal = Receipts(rollout.work / 'coordinator', rollout.operation)
-        if action in {'plan', 'apply', 'upgrade-plan', 'upgrade', 'verify'}:
+        if action in {'plan', 'apply', 'verify'}:
             rollout.replacement_cycle()
         lifecycle = rollout.uninstalled
-        if lifecycle and lifecycle['status'] not in {'complete', 'restored'} and action in {'apply', 'upgrade', 'recommission'}:
+        if lifecycle and lifecycle['status'] not in {'complete', 'restored'} and action in {'apply', 'recommission'}:
             raise ValueError('incomplete uninstall blocks deployment; reconcile the original plan and receipts')
-        if lifecycle and lifecycle['status'] == 'complete' and action in {'upgrade', 'upgrade-plan'}:
-            raise ValueError('deployment was uninstalled; use apply to restore retained history')
         def accepted(result):
             if (result == 0 and lifecycle.get('status') == 'complete'
                     and rollout.journal.get('pointers').get('status') == 'complete'):
@@ -666,16 +664,16 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
                            ('freeze', 'stop-agent', 'activate', 'start', 'finish', 'recommission-remove',
                             'uninstall-prepare', 'uninstall-freeze', 'uninstall-stop', 'uninstall-backup', 'uninstall-remove',
                             'exercise-inject'))
-            if action in {'apply', 'upgrade', 'uninstall', 'recommission'} and record.get('status') != 'complete' and critical:
+            if action in {'apply', 'uninstall', 'recommission'} and record.get('status') != 'complete' and critical:
                 raise ValueError('another incomplete release must be reconciled first: ' + path.parent.parent.name)
         # 先确认执行宿主确为p0，再向其他节点上传任何材料。
         NodeRelease(rollout.request('p0')).host()
         # 成功部署后的重复apply只做最新验收；确认记录不会授权重放变更。
-        if action in {'plan', 'apply', 'upgrade-plan', 'upgrade'} and rollout.journal.get('pointers').get('status') == 'complete':
+        if action in {'plan', 'apply'} and rollout.journal.get('pointers').get('status') == 'complete':
             inventory = rollout.inventory()
             if any(item.get('rebuild_guardians') for item in inventory.values()):
                 rollout.replacement_cycle(create=True)
-        if action == 'verify' or (action in {'apply', 'upgrade'} and rollout.journal.get('pointers').get('status') == 'complete'):
+        if action == 'verify' or (action == 'apply' and rollout.journal.get('pointers').get('status') == 'complete'):
             image = rollout.journal.get('image').get('result', {})
             rollout.image_id = image.get('image_id')
             return accepted(rollout.verify())
@@ -688,13 +686,10 @@ def run(action, archive, checksum, source, config, mode, *, plan_file=None, ssh_
             return rollout.plan_recommission()
         if action == 'recommission':
             return rollout.recommission(plan_file)
-        if action in {'plan', 'upgrade-plan'}:
+        if action == 'plan':
             inventory = rollout.inventory()
-            if action == 'upgrade-plan' and any(item['kind'] != 'upgrade' or item.get('restore_uninstall')
-                                              for item in inventory.values()):
-                raise ValueError('upgrade requires an existing installation on all nodes')
             print(json.dumps(dict(operation=rollout.operation, action=inventory['p0']['kind'], mode=site['mode'],
                                   version=rollout.version, nodes=inventory, model_mutations=0,
                                   profile=str(rollout.profile)), ensure_ascii=False, indent=2))
             return 0
-        return accepted(rollout.apply(require_existing=True) if action == 'upgrade' else rollout.apply())
+        return accepted(rollout.apply())
