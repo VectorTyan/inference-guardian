@@ -43,17 +43,17 @@ python3 -B packages/install_guardian.py upgrade \
 ```bash
 cd /data/scripts/inference-guardian
 python3 -B packages/install_guardian.py upgrade \
-  --archive packages/inference-guardian-source-0.31.3.tar.gz \
+  --archive "$ARCHIVE" \
   --config config/site.json --ssh-password --mode recovery
 ```
 
 程序按原事务记录定位现存发布目录，核验 MANIFEST 文件清单，并沿用原冻结配置、请求及回执对账收尾。确认旧事务完成后，在同一命令内继续部署新包，最终验收版本为新版本。原阶段不重放；新的升级轮次按既有规则部署 Guardian、复用 Token、归档日志和旧状态并重置恢复状态。现场配置文件不覆盖，衔接过程中使用原冻结配置。原事务按原请求模式完成，新部署采用本次指定的模式。
 
-终端中断后重跑同一命令即可，包括旧事务已完成而新部署尚未开始的情况。原进程仍持有锁、原发布目录缺失或损坏、模型动作未知、组件停止或模式结果无法确认时会明确停止，不删除回执或重放未知操作。不要清空 operations 或手改 complete。成功条件为最后一份报告 version=0.31.3、passed=true，redeploy.json 为 complete，Controller 模式符合本次请求（recovery 对应内部 auto）。旧 --resume-finish 参数保留解析兼容，执行流程也统一为完整升级，不再需要单独使用。
+终端中断后重跑同一命令即可，包括旧事务已完成而新部署尚未开始的情况。原进程仍持有锁、原发布目录缺失或损坏、模型动作未知、组件停止或模式结果无法确认时会明确停止，不删除回执或重放未知操作。不要清空 operations 或手改 complete。成功条件为最后一份报告 version 与本次 ARCHIVE 版本一致、passed=true，redeploy.json 为 complete，Controller 模式符合本次请求（recovery 对应内部 auto）。旧 --resume-finish 参数保留解析兼容，执行流程也统一为完整升级，不再需要单独使用。
 
 ### 从外部目录打包
 
-同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的四套清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。在本地维护时，将这些材料放到代码仓的 `local/delivery/`，测试套件放到 `local/validation/`。整个 `local/` 由 Git 和 Docker 构建上下文排除。在仓库根目录执行以下命令。
+同一个 Git 工作目录可用于公开示例和自有站点交付。站点使用独立目录维护 `deploy/presets.json`、已审阅的基础镜像和 `examples/vllm-ascend/` 下的清单及探针策略。发布前核对目录清单内的部署 ID、旧配置身份与站点基线。在本地维护时，将这些材料放到代码仓的 `local/delivery/`，测试套件放到 `local/validation/`。整个 `local/` 由 Git 和 Docker 构建上下文排除。在仓库根目录执行以下命令。
 
 ```bash
 python3 -B scripts/make_bundle.py --delivery-dir local/delivery
@@ -83,3 +83,22 @@ python3 -B packages/install_guardian.py --manifest config/source-manifest.json -
 `upgrade --mode observe` 会归档记录、重新部署 Guardian 并重置恢复预算及代次。升级前关闭进行中的演练并对账未知动作。使用与目标部署相同的身份和现场输入；新的示例身份适用于独立验证环境。日常只读复查使用 verify。Controller 采用只读根文件系统、cap-drop ALL 和 no-new-privileges。符合条件的启动错误只允许一次 seccomp 兼容对比，通过固定版本自检后记录实际角色策略。
 
 [恢复演练](recovery.md)
+
+### 单机多卡
+
+单机仍使用同一安装入口。本机记作 p0，Controller 和一个 Agent 管理一个已有模型容器，无需 SSH。模型应先启动并可正常推理。将三份交付物放入 packages/，全新安装可直接选择包内示例，无需预先解压；以下命令保留已存在的 site.json，已有配置请先核对其 profile。
+
+```bash
+cd /data/scripts/inference-guardian
+mkdir -p config
+test -e config/site.json || printf '%s\n' '{"profile":"example-single-tp4","mode":"observe"}' > config/site.json
+python3 -B packages/install_guardian.py --config config/site.json --mode observe
+```
+
+入口自动选择 packages/ 中最高稳定版本的源码包。固定版本时使用 `--archive "$ARCHIVE"`。现场发行包的 profile 名称以其 examples 目录为准。需要修改清单时，沿用 `--manifest config/source-manifest.json`；同目录 probe-settings.json 一并读取，缺少时从所选单机示例继承默认策略。
+
+单机 v6 清单使用 topology=single_node_mixed，deployment_id 对应 deploy/presets.json 中可选的 SINGLE_EXAMPLES 映射，旧目录表无需更换。nodes 只有 p0；dp、local_dp、tp 和 npu_devices 描述已有运行形态，dp=local_dp，dp×tp 等于配置卡数。TP4 的四个 worker 仍属于一次 vllm serve，进程门槛为一个启动进程。模型、服务名、端口、脚本名及探针参数均取配置，不改写启动脚本。
+
+script_mount.source 和 target 分别为宿主与容器中的挂载目录。例如 `/data/model` → `/data` 时，容器 `/data/scripts/example-single/start_model.sh` 对应宿主 `/data/model/scripts/example-single/start_model.sh`。预检核对名称、路径、挂载和计算卡映射，不校验脚本内容 hash。startup_mode=foreground 的脚本通过 detached exec 派发，脚本持续运行不视为超时；background 表示脚本自行后台启动服务并正常退出。派发成功后仍须等待进程、健康探针与真实生成通过，不能把 Docker exec 成功等同于模型就绪。
+
+安装报告 passed=true 后按[恢复演练](recovery.md)选择 p0。验收关闭后用同一入口 `upgrade --config config/site.json --mode recovery` 启用自动恢复；日常升级使用 `upgrade --config config/site.json --mode observe`。两者均无需 --ssh-password。日志仍挂载在宿主 state/<deployment_id>/p0/ 下，使用 paths 或 logs 查看。此场景不使用 Mooncake、Proxy 或 P/D 指标转发入口，也不扩展为同机多个模型安装。
